@@ -1,0 +1,11 @@
+# Loose lower bounds rather than exact pins: Python 3.14 is new enough that several
+# of these only ship wheels in recent versions, and pinning older ones sends pip off
+# to build Rust extensions from source.
+fastapi>=0.118
+uvicorn[standard]>=0.34
+pydantic>=2.12
+ortools>=9.15
+numpy>=2.2
+scipy>=1.15
+pytest>=8.3
+httpx>=0.28
