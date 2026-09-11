@@ -1,14 +1,14 @@
 services:
   mongo:
     image: mongo:7
-    container_name: northbound-mongo
+    container_name: funded-mongo
     # Prisma requires a replica set even for a single node, because it uses
     # transactions. This starts one and initiates it on first boot.
     command: ["--replSet", "rs0", "--bind_ip_all"]
     ports:
       - "27017:27017"
     volumes:
-      - northbound-mongo:/data/db
+      - funded-mongo:/data/db
     healthcheck:
       test: >
         mongosh --quiet --eval "try { rs.status().ok } catch (e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'localhost:27017'}]}).ok }"
@@ -19,7 +19,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    container_name: northbound-redis
+    container_name: funded-redis
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     ports:
       - "6380:6379"
@@ -30,4 +30,4 @@ services:
       retries: 5
 
 volumes:
-  northbound-mongo:
+  funded-mongo:

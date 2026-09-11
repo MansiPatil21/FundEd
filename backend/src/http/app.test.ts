@@ -5,7 +5,7 @@ import { loadEnv } from '../config/env.js'
 
 const env = loadEnv({
   NODE_ENV: 'test',
-  DATABASE_URL: 'mongodb://localhost:27017/northbound_test',
+  DATABASE_URL: 'mongodb://localhost:27017/funded_test',
 } as NodeJS.ProcessEnv)
 
 const appWith = (services: Record<string, 'up' | 'down'>) =>

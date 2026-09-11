@@ -32,7 +32,7 @@ async function start(): Promise<void> {
   })
 
   const server = app.listen(env.PORT, () => {
-    console.log(`northbound-api listening on :${env.PORT}`)
+    console.log(`funded-api listening on :${env.PORT}`)
   })
 
   const shutdown = async (signal: string): Promise<void> => {

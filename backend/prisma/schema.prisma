@@ -1,4 +1,4 @@
-// Northbound data model.
+// FundEd data model.
 //
 // MongoDB rather than a relational store because a student's financial profile is
 // deeply nested and varies by country of origin, visa type and institution: the

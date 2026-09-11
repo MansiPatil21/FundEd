@@ -1,4 +1,4 @@
-# Northbound — requirements
+# FundEd — requirements
 
 A financial companion for international students in Canada.
 

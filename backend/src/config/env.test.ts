@@ -2,7 +2,7 @@ import { describe, expect, it } from '@jest/globals'
 import { loadEnv } from './env.js'
 
 describe('loadEnv', () => {
-  const valid = { DATABASE_URL: 'mongodb://localhost:27017/northbound' }
+  const valid = { DATABASE_URL: 'mongodb://localhost:27017/funded' }
 
   it('applies defaults for everything optional', () => {
     const env = loadEnv(valid as NodeJS.ProcessEnv)
