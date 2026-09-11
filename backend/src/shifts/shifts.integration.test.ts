@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, it } from '@jest/globals'
-import { PrismaClient } from '@prisma/client'
 import request from 'supertest'
+import { testDatabase } from '../testing/database.js'
 import { createApp } from '../http/app.js'
 import { loadEnv } from '../config/env.js'
 import { createTokenService } from '../auth/tokens.js'
@@ -14,11 +14,8 @@ import { createShiftRepository } from './repository.js'
  * between tests.
  */
 
-const DATABASE_URL =
-  process.env.TEST_DATABASE_URL ??
-  'mongodb://localhost:27017/funded_test?replicaSet=rs0&directConnection=true'
-
-const db = new PrismaClient({ datasources: { db: { url: DATABASE_URL } } })
+const db = testDatabase('shifts')
+const DATABASE_URL = 'mongodb://localhost:27017/funded_test_shifts'
 const tokens = createTokenService('integration-test-secret', 3600)
 const env = loadEnv({ NODE_ENV: 'test', DATABASE_URL } as NodeJS.ProcessEnv)
 

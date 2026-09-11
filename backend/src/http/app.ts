@@ -8,6 +8,10 @@ import type { TokenService } from '../auth/tokens.js'
 import { authRouter } from '../auth/router.js'
 import { shiftsRouter } from '../shifts/router.js'
 import type { ShiftRepository } from '../shifts/repository.js'
+import type { ObligationRepository } from '../obligations/repository.js'
+import { obligationsRouter } from '../obligations/router.js'
+import { planningRouter } from '../planning/router.js'
+import type { OptimiserClient } from '../optimizer/client.js'
 import type { PrismaClient } from '@prisma/client'
 
 export interface Dependencies {
@@ -17,9 +21,19 @@ export interface Dependencies {
   db?: PrismaClient
   tokens?: TokenService
   shifts?: ShiftRepository
+  obligations?: ObligationRepository
+  optimiser?: OptimiserClient
 }
 
-export function createApp({ env, checkHealth, db, tokens, shifts }: Dependencies): Express {
+export function createApp({
+  env,
+  checkHealth,
+  db,
+  tokens,
+  shifts,
+  obligations,
+  optimiser,
+}: Dependencies): Express {
   const app = express()
 
   app.use(express.json({ limit: '128kb' }))
@@ -55,6 +69,14 @@ export function createApp({ env, checkHealth, db, tokens, shifts }: Dependencies
 
   if (shifts && tokens) {
     app.use('/api/shifts', requireUser(tokens), shiftsRouter(shifts))
+  }
+
+  if (obligations && tokens) {
+    app.use('/api/obligations', requireUser(tokens), obligationsRouter(obligations))
+  }
+
+  if (obligations && optimiser && tokens) {
+    app.use('/api/plan', requireUser(tokens), planningRouter(obligations, optimiser))
   }
 
   app.use((_req: Request, res: Response) => {

@@ -63,3 +63,12 @@ the rest of the product still works and says what is missing.
 No connection to real bank accounts. No money actually moves. No tax advice: the checklist
 lists documents, it does not compute a return. Immigration rules are encoded as a
 configurable cap, not as legal guidance.
+
+## Degradation contract (NFR-5, concrete)
+
+| Situation | Response | Why |
+| --- | --- | --- |
+| Optimiser unreachable or timed out | `503 optimiser_unavailable`, naming the one feature affected | A 500 implies the whole API is broken. It is not: obligations are saved and compliance still answers |
+| Optimiser rejects the request as unsolvable | `422 not_schedulable` with the solver's reason | An answer, not an outage. The user can change the horizon or the buffer |
+| Optimiser returns an unexpected shape | treated as unavailable | A separately deployed service can roll forward independently; a silently changed field must not become a wrong number on a dashboard |
+| No obligation inside the horizon | `422 nothing_to_plan` | Distinguishes "nothing to do" from "could not do it" |
