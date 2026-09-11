@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "@prisma/client": "^6.3.0",
+    "@types/jsonwebtoken": "^9.0.10",
     "express": "^5.0.1",
+    "jsonwebtoken": "^9.0.3",
     "pino": "^9.6.0",
     "pino-http": "^10.4.0",
     "redis": "^6.2.1",

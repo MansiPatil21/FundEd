@@ -19,7 +19,12 @@ model User {
   id             String   @id @default(auto()) @map("_id") @db.ObjectId
   email          String   @unique
   displayName    String
-  googleId       String?  @unique
+  // NOT @unique, deliberately. MongoDB's unique index treats a missing field as
+  // null and counts nulls toward uniqueness, so a nullable unique field allows
+  // exactly ONE row without it. The second local sign-up fails with P2002, which
+  // is a confusing way to discover the rule. Uniqueness of a Google account is
+  // enforced when one is linked, not by the index. See ADR 0003.
+  googleId       String?
   homeCurrency   String   // ISO 4217, e.g. INR
   localCurrency  String   @default("CAD")
   createdAt      DateTime @default(now())

@@ -3,14 +3,23 @@ import { pinoHttp } from 'pino-http'
 import { ZodError } from 'zod'
 import type { Env } from '../config/env.js'
 import { complianceRouter } from '../compliance/router.js'
+import { requireUser } from '../auth/middleware.js'
+import type { TokenService } from '../auth/tokens.js'
+import { authRouter } from '../auth/router.js'
+import { shiftsRouter } from '../shifts/router.js'
+import type { ShiftRepository } from '../shifts/repository.js'
+import type { PrismaClient } from '@prisma/client'
 
 export interface Dependencies {
   env: Env
   /** Reports whether each backing service is reachable. Injected so tests need neither. */
   checkHealth: () => Promise<Record<string, 'up' | 'down'>>
+  db?: PrismaClient
+  tokens?: TokenService
+  shifts?: ShiftRepository
 }
 
-export function createApp({ env, checkHealth }: Dependencies): Express {
+export function createApp({ env, checkHealth, db, tokens, shifts }: Dependencies): Express {
   const app = express()
 
   app.use(express.json({ limit: '128kb' }))
@@ -36,7 +45,17 @@ export function createApp({ env, checkHealth }: Dependencies): Express {
     })
   })
 
+  // Stateless calculators. Useful before sign-up and handy for testing the rules
+  // directly, so they stay unauthenticated and take their shifts in the request.
   app.use('/api/compliance', complianceRouter())
+
+  if (db && tokens) {
+    app.use('/api/auth', authRouter({ db, tokens, allowLocalSignIn: env.NODE_ENV !== 'production' }))
+  }
+
+  if (shifts && tokens) {
+    app.use('/api/shifts', requireUser(tokens), shiftsRouter(shifts))
+  }
 
   app.use((_req: Request, res: Response) => {
     res.status(404).json({ error: 'not_found' })
