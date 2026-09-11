@@ -12,6 +12,8 @@ import type { ObligationRepository } from '../obligations/repository.js'
 import { obligationsRouter } from '../obligations/router.js'
 import { planningRouter } from '../planning/router.js'
 import type { OptimiserClient } from '../optimizer/client.js'
+import { fxRouter, fxWebhookRouter } from '../fx/router.js'
+import type { FxService } from '../fx/service.js'
 import type { PrismaClient } from '@prisma/client'
 
 export interface Dependencies {
@@ -23,6 +25,8 @@ export interface Dependencies {
   shifts?: ShiftRepository
   obligations?: ObligationRepository
   optimiser?: OptimiserClient
+  fx?: FxService
+  webhookSecret?: string
 }
 
 export function createApp({
@@ -33,8 +37,17 @@ export function createApp({
   shifts,
   obligations,
   optimiser,
+  fx,
+  webhookSecret,
 }: Dependencies): Express {
   const app = express()
+
+  // The webhook is mounted BEFORE the JSON parser, because its signature covers the
+  // raw bytes that arrived. Parsing first and re-serialising produces different
+  // bytes and the signature would never verify.
+  if (fx && webhookSecret) {
+    app.use('/webhooks/fx', fxWebhookRouter(fx, webhookSecret))
+  }
 
   app.use(express.json({ limit: '128kb' }))
   app.use(
@@ -73,6 +86,10 @@ export function createApp({
 
   if (obligations && tokens) {
     app.use('/api/obligations', requireUser(tokens), obligationsRouter(obligations))
+  }
+
+  if (fx && db && tokens) {
+    app.use('/api/fx', requireUser(tokens), fxRouter(db, fx))
   }
 
   if (obligations && optimiser && tokens) {

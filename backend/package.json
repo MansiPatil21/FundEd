@@ -13,13 +13,19 @@
     "prisma:push": "prisma db push"
   },
   "dependencies": {
+    "@apollo/server": "^5.5.1",
+    "@as-integrations/express5": "^1.1.2",
     "@prisma/client": "^6.3.0",
     "@types/jsonwebtoken": "^9.0.10",
+    "bullmq": "^6.3.4",
     "express": "^5.0.1",
+    "graphql": "^16.14.2",
+    "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
     "pino": "^9.6.0",
     "pino-http": "^10.4.0",
     "redis": "^6.2.1",
+    "socket.io": "^4.8.3",
     "zod": "^3.24.1"
   },
   "devDependencies": {
