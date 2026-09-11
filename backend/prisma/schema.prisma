@@ -1,0 +1,165 @@
+// Northbound data model.
+//
+// MongoDB rather than a relational store because a student's financial profile is
+// deeply nested and varies by country of origin, visa type and institution: the
+// obligations a student in India carries home look nothing like those from Nigeria
+// or Brazil, and forcing them into shared columns fights the data. Prisma gives
+// back the type safety that dropping a schema would otherwise cost.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mongodb"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id             String   @id @default(auto()) @map("_id") @db.ObjectId
+  email          String   @unique
+  displayName    String
+  googleId       String?  @unique
+  homeCurrency   String   // ISO 4217, e.g. INR
+  localCurrency  String   @default("CAD")
+  createdAt      DateTime @default(now())
+
+  permit         StudyPermit?
+  shifts         Shift[]
+  obligations    Obligation[]
+  deadlines      Deadline[]
+  alerts         FxAlert[]
+  transferPlans  TransferPlan[]
+
+  @@map("users")
+}
+
+// Embedded, not a collection: a permit has no meaning apart from its holder and is
+// always read with them.
+type StudyPermit {
+  permitNumber     String
+  expiresOn        DateTime
+  weeklyHourCap    Int      @default(24) // off-campus cap during study terms
+  institution      String
+  programEndsOn    DateTime
+}
+
+// Work-hour compliance (feature 1). One row per shift so the weekly rolling total
+// can be recomputed from source rather than stored and drifted.
+model Shift {
+  id          String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String   @db.ObjectId
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startedAt   DateTime
+  endedAt     DateTime
+  employer    String
+  onCampus    Boolean  @default(false) // on-campus hours do not count against the cap
+  createdAt   DateTime @default(now())
+
+  @@index([userId, startedAt])
+  @@map("shifts")
+}
+
+// A recurring commitment in the home currency: a sibling's tuition, a loan
+// instalment, family support. Drives the optimizer's demand side.
+model Obligation {
+  id             String            @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String            @db.ObjectId
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label          String
+  amountMinor    Int               // minor units of homeCurrency, never a float
+  currency       String
+  cadence        ObligationCadence
+  nextDueOn      DateTime
+  createdAt      DateTime          @default(now())
+
+  @@index([userId, nextDueOn])
+  @@map("obligations")
+}
+
+enum ObligationCadence {
+  ONCE
+  MONTHLY
+  QUARTERLY
+  ANNUAL
+}
+
+model Deadline {
+  id          String       @id @default(auto()) @map("_id") @db.ObjectId
+  userId      String       @db.ObjectId
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label       String
+  kind        DeadlineKind
+  dueOn       DateTime
+  completedAt DateTime?
+
+  @@index([userId, dueOn])
+  @@map("deadlines")
+}
+
+enum DeadlineKind {
+  TUITION
+  GIC_RELEASE
+  PERMIT_EXPIRY
+  TAX_FILING
+  OTHER
+}
+
+// FX watch (feature 3). Fires once when the rate crosses the target.
+model FxAlert {
+  id           String    @id @default(auto()) @map("_id") @db.ObjectId
+  userId       String    @db.ObjectId
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  baseCurrency String
+  quoteCurrency String
+  targetRate   Float
+  direction    AlertDirection
+  triggeredAt  DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@index([baseCurrency, quoteCurrency, triggeredAt])
+  @@map("fx_alerts")
+}
+
+enum AlertDirection {
+  AT_OR_ABOVE
+  AT_OR_BELOW
+}
+
+// The optimizer's output (feature 4), stored so a plan can be compared against what
+// actually happened and against the naive baseline.
+model TransferPlan {
+  id             String         @id @default(auto()) @map("_id") @db.ObjectId
+  userId         String         @db.ObjectId
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  horizonStart   DateTime
+  horizonEnd     DateTime
+  transfers      PlannedTransfer[]
+  totalCostMinor Int
+  baselineCostMinor Int         // naive monthly transfer, for the saving claim
+  solverStatus   String
+  createdAt      DateTime       @default(now())
+
+  @@index([userId, createdAt])
+  @@map("transfer_plans")
+}
+
+type PlannedTransfer {
+  sendOn      DateTime
+  amountMinor Int
+  feeMinor    Int
+  assumedRate Float
+}
+
+// Cached FX observations. Written by the poller, read by the optimizer and the
+// alert evaluator.
+model FxRate {
+  id            String   @id @default(auto()) @map("_id") @db.ObjectId
+  baseCurrency  String
+  quoteCurrency String
+  rate          Float
+  observedAt    DateTime
+
+  @@index([baseCurrency, quoteCurrency, observedAt])
+  @@map("fx_rates")
+}
