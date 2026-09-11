@@ -12,6 +12,7 @@
 export const TEST_REDIS_DB = {
   fx: 1,
   poller: 2,
+  graphql: 3,
 } as const
 
 export function testRedisUrl(suite: keyof typeof TEST_REDIS_DB): string {

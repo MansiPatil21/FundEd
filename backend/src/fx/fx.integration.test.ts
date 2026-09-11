@@ -25,6 +25,8 @@ const tokens = createTokenService('fx-test-secret', 3600)
 const env = loadEnv({
   NODE_ENV: 'test',
   DATABASE_URL: 'mongodb://localhost:27017/funded_test_fx',
+  JWT_SECRET: 'a-secret-long-enough-to-pass-validation',
+  FX_WEBHOOK_SECRET: 'webhook-secret-16+',
 } as NodeJS.ProcessEnv)
 
 const redis: RedisClientType = createClient({ url: testRedisUrl('fx') })
@@ -33,7 +35,8 @@ const notified: Trigger[] = []
 const cache = createRateCache(redis, 60)
 const fx = createFxService(db, cache, { alertTriggered: (t) => void notified.push(t) })
 
-const app = createApp({
+let app: Awaited<ReturnType<typeof createApp>>
+const buildApp = () => createApp({
   env,
   checkHealth: async () => ({ mongo: 'up', redis: 'up' }),
   db,
@@ -60,6 +63,7 @@ const signIn = async (email = 'fx@example.com') => {
 
 beforeAll(async () => {
   await redis.connect()
+  app = await buildApp()
 })
 
 beforeEach(async () => {

@@ -6,30 +6,33 @@ import { loadEnv } from '../config/env.js'
 const env = loadEnv({
   NODE_ENV: 'test',
   DATABASE_URL: 'mongodb://localhost:27017/funded_test',
+  JWT_SECRET: 'a-secret-long-enough-to-pass-validation',
+  FX_WEBHOOK_SECRET: 'webhook-secret-16+',
 } as NodeJS.ProcessEnv)
 
+/** No database, no Redis: createApp mounts only what it is given dependencies for. */
 const appWith = (services: Record<string, 'up' | 'down'>) =>
   createApp({ env, checkHealth: async () => services })
 
+const healthy = () => appWith({ mongo: 'up', redis: 'up' })
+
 describe('GET /health', () => {
   it('returns 200 when every dependency is up', async () => {
-    const response = await request(appWith({ mongo: 'up', redis: 'up' })).get('/health')
+    const response = await request(await healthy()).get('/health')
     expect(response.status).toBe(200)
     expect(response.body).toEqual({ status: 'ok', services: { mongo: 'up', redis: 'up' } })
   })
 
   it('returns 503 when a dependency is down, so traffic is routed away', async () => {
-    const response = await request(appWith({ mongo: 'up', redis: 'down' })).get('/health')
+    const response = await request(await appWith({ mongo: 'up', redis: 'down' })).get('/health')
     expect(response.status).toBe(503)
     expect(response.body.status).toBe('degraded')
   })
 })
 
 describe('POST /api/compliance/usage', () => {
-  const app = appWith({ mongo: 'up', redis: 'up' })
-
   it('reports weekly usage and the current week together', async () => {
-    const response = await request(app)
+    const response = await request(await healthy())
       .post('/api/compliance/usage')
       .send({
         shifts: [{ startedAt: '2026-09-08T09:00:00', endedAt: '2026-09-08T17:00:00' }],
@@ -44,7 +47,7 @@ describe('POST /api/compliance/usage', () => {
   })
 
   it('rejects a shift that ends before it starts, naming the field', async () => {
-    const response = await request(app)
+    const response = await request(await healthy())
       .post('/api/compliance/usage')
       .send({ shifts: [{ startedAt: '2026-09-08T17:00:00', endedAt: '2026-09-08T09:00:00' }] })
 
@@ -54,7 +57,7 @@ describe('POST /api/compliance/usage', () => {
   })
 
   it('rejects a cap outside the hours in a week', async () => {
-    const response = await request(app)
+    const response = await request(await healthy())
       .post('/api/compliance/usage')
       .send({ shifts: [], capHours: 200 })
 
@@ -63,14 +66,13 @@ describe('POST /api/compliance/usage', () => {
 })
 
 describe('POST /api/compliance/would-breach', () => {
-  const app = appWith({ mongo: 'up', redis: 'up' })
   const existing = [
     { startedAt: '2026-09-08T08:00:00', endedAt: '2026-09-08T18:00:00' },
     { startedAt: '2026-09-09T08:00:00', endedAt: '2026-09-09T18:00:00' },
   ]
 
   it('answers false when the shift fits', async () => {
-    const response = await request(app)
+    const response = await request(await healthy())
       .post('/api/compliance/would-breach')
       .send({
         shifts: existing,
@@ -80,7 +82,7 @@ describe('POST /api/compliance/would-breach', () => {
   })
 
   it('answers true when the shift would push the week over', async () => {
-    const response = await request(app)
+    const response = await request(await healthy())
       .post('/api/compliance/would-breach')
       .send({
         shifts: existing,
@@ -92,8 +94,15 @@ describe('POST /api/compliance/would-breach', () => {
 
 describe('unknown routes', () => {
   it('return 404 as JSON, not an HTML error page', async () => {
-    const response = await request(appWith({ mongo: 'up' })).get('/nope')
+    const response = await request(await appWith({ mongo: 'up' })).get('/nope')
     expect(response.status).toBe(404)
     expect(response.body).toEqual({ error: 'not_found' })
+  })
+})
+
+describe('routes that need dependencies', () => {
+  it('are simply absent when those dependencies were not supplied', async () => {
+    const response = await request(await healthy()).get('/api/shifts')
+    expect(response.status).toBe(404)
   })
 })

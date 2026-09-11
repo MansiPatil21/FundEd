@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from '@jest/globals'
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from '@jest/globals'
 import request from 'supertest'
 import { testDatabase } from '../testing/database.js'
 import { createApp } from '../http/app.js'
@@ -17,9 +17,15 @@ import { createShiftRepository } from './repository.js'
 const db = testDatabase('shifts')
 const DATABASE_URL = 'mongodb://localhost:27017/funded_test_shifts'
 const tokens = createTokenService('integration-test-secret', 3600)
-const env = loadEnv({ NODE_ENV: 'test', DATABASE_URL } as NodeJS.ProcessEnv)
+const env = loadEnv({
+  NODE_ENV: 'test',
+  DATABASE_URL,
+  JWT_SECRET: 'a-secret-long-enough-to-pass-validation',
+  FX_WEBHOOK_SECRET: 'webhook-secret-16+',
+} as NodeJS.ProcessEnv)
 
-const app = createApp({
+let app: Awaited<ReturnType<typeof createApp>>
+const buildApp = () => createApp({
   env,
   checkHealth: async () => ({ mongo: 'up' }),
   db,
@@ -33,6 +39,10 @@ const signIn = async (email = 'mansi@example.com') => {
     .send({ email, displayName: 'Mansi', homeCurrency: 'INR' })
   return response.body.token as string
 }
+
+beforeAll(async () => {
+  app = await buildApp()
+})
 
 beforeEach(async () => {
   await db.shift.deleteMany()

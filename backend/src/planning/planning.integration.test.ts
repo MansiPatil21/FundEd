@@ -20,7 +20,12 @@ import type { OptimiserClient, PlanOutcome } from '../optimizer/client.js'
 const db = testDatabase('planning')
 const DATABASE_URL = 'mongodb://localhost:27017/funded_test_planning'
 const tokens = createTokenService('planning-test-secret', 3600)
-const env = loadEnv({ NODE_ENV: 'test', DATABASE_URL } as NodeJS.ProcessEnv)
+const env = loadEnv({
+  NODE_ENV: 'test',
+  DATABASE_URL,
+  JWT_SECRET: 'a-secret-long-enough-to-pass-validation',
+  FX_WEBHOOK_SECRET: 'webhook-secret-16+',
+} as NodeJS.ProcessEnv)
 
 const stubOptimiser = (outcome: PlanOutcome): OptimiserClient => ({
   plan: async () => outcome,
@@ -52,14 +57,16 @@ const plannedOutcome: PlanOutcome = {
   },
 }
 
-const signIn = async (app: ReturnType<typeof appWith>, email = 'planner@example.com') => {
+type TestApp = Awaited<ReturnType<typeof appWith>>
+
+const signIn = async (app: TestApp, email = 'planner@example.com') => {
   const response = await request(app)
     .post('/api/auth/local')
     .send({ email, displayName: 'Planner', homeCurrency: 'INR' })
   return response.body.token as string
 }
 
-const addObligation = (app: ReturnType<typeof appWith>, token: string) =>
+const addObligation = (app: TestApp, token: string) =>
   request(app)
     .post('/api/obligations')
     .set('Authorization', `Bearer ${token}`)
@@ -95,7 +102,7 @@ afterAll(async () => {
 
 describe('obligations', () => {
   it('stores and lists an obligation for its owner only', async () => {
-    const app = appWith(stubOptimiser(plannedOutcome))
+    const app = await appWith(stubOptimiser(plannedOutcome))
     const mine = await signIn(app, 'mine@example.com')
     const theirs = await signIn(app, 'theirs@example.com')
 
@@ -112,7 +119,7 @@ describe('obligations', () => {
 
 describe('POST /api/plan', () => {
   it('expands a monthly obligation across the horizon and returns a schedule', async () => {
-    const app = appWith(stubOptimiser(plannedOutcome))
+    const app = await appWith(stubOptimiser(plannedOutcome))
     const token = await signIn(app)
     await addObligation(app, token)
 
@@ -130,7 +137,7 @@ describe('POST /api/plan', () => {
   })
 
   it('refuses to plan when no obligation falls inside the horizon', async () => {
-    const app = appWith(stubOptimiser(plannedOutcome))
+    const app = await appWith(stubOptimiser(plannedOutcome))
     const token = await signIn(app)
 
     const response = await request(app)
@@ -143,7 +150,7 @@ describe('POST /api/plan', () => {
   })
 
   it('passes a solver rejection through as 422 with the reason', async () => {
-    const app = appWith(stubOptimiser({ kind: 'rejected', reason: 'no period can fund "tuition"' }))
+    const app = await appWith(stubOptimiser({ kind: 'rejected', reason: 'no period can fund "tuition"' }))
     const token = await signIn(app)
     await addObligation(app, token)
 
@@ -159,7 +166,7 @@ describe('POST /api/plan', () => {
 
   // NFR-5: the product degrades rather than fails.
   it('returns 503 naming the one unavailable feature, not a 500', async () => {
-    const app = appWith(stubOptimiser({ kind: 'unavailable', reason: 'optimiser unreachable' }))
+    const app = await appWith(stubOptimiser({ kind: 'unavailable', reason: 'optimiser unreachable' }))
     const token = await signIn(app)
     await addObligation(app, token)
 
@@ -174,7 +181,7 @@ describe('POST /api/plan', () => {
   })
 
   it('keeps the rest of the API working while the optimiser is down', async () => {
-    const app = appWith(stubOptimiser({ kind: 'unavailable', reason: 'down' }))
+    const app = await appWith(stubOptimiser({ kind: 'unavailable', reason: 'down' }))
     const token = await signIn(app)
     await addObligation(app, token)
 
@@ -191,7 +198,7 @@ describe('POST /api/plan', () => {
   })
 
   it('requires an explicit rate assumption rather than defaulting one', async () => {
-    const app = appWith(stubOptimiser(plannedOutcome))
+    const app = await appWith(stubOptimiser(plannedOutcome))
     const token = await signIn(app)
     await addObligation(app, token)
 

@@ -14,6 +14,7 @@ import { planningRouter } from '../planning/router.js'
 import type { OptimiserClient } from '../optimizer/client.js'
 import { fxRouter, fxWebhookRouter } from '../fx/router.js'
 import type { FxService } from '../fx/service.js'
+import { attachGraphql } from '../graphql/server.js'
 import type { PrismaClient } from '@prisma/client'
 
 export interface Dependencies {
@@ -27,9 +28,20 @@ export interface Dependencies {
   optimiser?: OptimiserClient
   fx?: FxService
   webhookSecret?: string
+  /** Mounts /graphql. Omitted by tests that only exercise the REST surface. */
+  graphql?: { introspection: boolean }
 }
 
-export function createApp({
+
+
+/**
+ * Async because Apollo requires `await server.start()` before it can be mounted, and
+ * mounting has to happen BEFORE the catch-all 404 below. Express matches routes in
+ * registration order, so attaching GraphQL after createApp had returned meant every
+ * /graphql request fell through to the fallback and came back 404, with nothing else
+ * to indicate why.
+ */
+export async function createApp({
   env,
   checkHealth,
   db,
@@ -39,7 +51,8 @@ export function createApp({
   optimiser,
   fx,
   webhookSecret,
-}: Dependencies): Express {
+  graphql,
+}: Dependencies): Promise<Express> {
   const app = express()
 
   // The webhook is mounted BEFORE the JSON parser, because its signature covers the
@@ -94,6 +107,17 @@ export function createApp({
 
   if (obligations && optimiser && tokens) {
     app.use('/api/plan', requireUser(tokens), planningRouter(obligations, optimiser))
+  }
+
+  if (graphql && db && tokens && shifts && obligations && fx) {
+    await attachGraphql(app, {
+      db,
+      tokens,
+      shifts,
+      obligations,
+      fx,
+      introspection: graphql.introspection,
+    })
   }
 
   app.use((_req: Request, res: Response) => {
