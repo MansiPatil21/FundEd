@@ -27,7 +27,10 @@ const newShiftSchema = z
 
 const proposedSchema = newShiftSchema
 
-export function shiftsRouter(shifts: ShiftRepository, capHours = 24): Router {
+/** Resolves a student's weekly cap. 24 until a permit has been recorded. */
+export type CapResolver = (userId: string) => Promise<number>
+
+export function shiftsRouter(shifts: ShiftRepository, capFor: CapResolver = async () => 24): Router {
   const router = Router()
 
   router.post('/', async (req, res) => {
@@ -50,8 +53,9 @@ export function shiftsRouter(shifts: ShiftRepository, capHours = 24): Router {
 
   router.get('/compliance', async (req, res) => {
     const user = currentUser(req)
-    const stored = await shifts.listFor(user.sub)
+    const [stored, capHours] = await Promise.all([shifts.listFor(user.sub), capFor(user.sub)])
     res.json({
+      capHours,
       weeks: weeklyUsage(stored, capHours),
       current: currentWeek(stored, capHours, new Date()),
     })
@@ -60,8 +64,8 @@ export function shiftsRouter(shifts: ShiftRepository, capHours = 24): Router {
   router.post('/compliance/would-breach', async (req, res) => {
     const user = currentUser(req)
     const proposed = proposedSchema.parse(req.body)
-    const stored = await shifts.listFor(user.sub)
-    res.json({ wouldBreach: wouldBreach(stored, proposed, capHours) })
+    const [stored, capHours] = await Promise.all([shifts.listFor(user.sub), capFor(user.sub)])
+    res.json({ wouldBreach: wouldBreach(stored, proposed, capHours), capHours })
   })
 
   return router

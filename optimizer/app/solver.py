@@ -22,7 +22,7 @@ Minimise      sum_t  x[t] * (1 + variable_bps/10_000)  +  fixed_fee * y[t]
 
 subject to
     (1) every obligation is covered by its due date, in home currency
-    (2) the running local balance never falls below the minimum buffer
+    (2) the running local balance, after transfers and their fees, never falls below the minimum buffer
     (3) x[t] > 0 implies y[t] = 1, and x[t] >= min_transfer when y[t] = 1
 
 Why the objective is not simply "sum of x"
@@ -87,15 +87,22 @@ def solve(request: PlanRequest) -> PlanResponse:
         model.add(sum(eligible) >= cumulative_due * RATE_SCALE)
 
     # (2) the balance never dips below the buffer, checked after every period.
-    running = request.opening_balance_minor
-    for i, period in enumerate(periods):
-        running_expr = (
-            running
+    # Fees come out of the same account as the transfers, so they count against the buffer
+    # too. Leaving them out let the balance dip below the minimum by exactly the fees paid,
+    # and overstated the closing balance by the same amount. The inequality is scaled by
+    # BPS_SCALE so the percentage fee stays an integer coefficient.
+    for i in range(len(periods)):
+        cash_scaled = BPS_SCALE * (
+            request.opening_balance_minor
             + sum(periods[j].income_minor for j in range(i + 1))
             - sum(periods[j].spending_minor for j in range(i + 1))
             - sum(sent[j] for j in range(i + 1))
         )
-        model.add(running_expr >= request.minimum_balance_minor)
+        fees_scaled = sum(
+            sent[j] * request.fees.variable_bps + sends[j] * request.fees.fixed_minor * BPS_SCALE
+            for j in range(i + 1)
+        )
+        model.add(cash_scaled - fees_scaled >= request.minimum_balance_minor * BPS_SCALE)
 
     # Objective, scaled so the basis-point term stays integral.
     unit_cost = BPS_SCALE + request.fees.variable_bps
@@ -145,6 +152,7 @@ def solve(request: PlanRequest) -> PlanResponse:
         + sum(p.income_minor for p in periods)
         - sum(p.spending_minor for p in periods)
         - total_sent
+        - total_fees
     )
 
     return PlanResponse(

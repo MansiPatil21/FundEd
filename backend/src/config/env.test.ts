@@ -15,6 +15,11 @@ describe('loadEnv', () => {
     expect(env.REDIS_URL).toBe('redis://localhost:6380')
   })
 
+  it('keeps rate polling off unless it is switched on', () => {
+    expect(loadEnv(valid as NodeJS.ProcessEnv).FX_POLL_ENABLED).toBe(false)
+    expect(loadEnv({ ...valid, FX_POLL_ENABLED: 'true' } as NodeJS.ProcessEnv).FX_POLL_ENABLED).toBe(true)
+  })
+
   it('coerces PORT from the string the shell actually provides', () => {
     const env = loadEnv({ ...valid, PORT: '8080' } as NodeJS.ProcessEnv)
     expect(env.PORT).toBe(8080)

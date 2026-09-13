@@ -222,3 +222,36 @@ describe('the rate cache', () => {
     expect(response.status).toBe(404)
   })
 })
+
+
+describe('repeated observations', () => {
+  // The poller re-reads the same daily reference rate every few hours. Storing each read
+  // would fill the history with zero day-to-day changes and understate how rates move.
+  it('stores an observation seen twice only once', async () => {
+    await push(61.2, '2027-01-05T15:00:00Z')
+    const second = await push(61.2, '2027-01-05T15:00:00Z')
+
+    expect(second.status).toBe(202)
+    expect(second.body.alertsTriggered).toBe(0)
+    expect(await db.fxRate.count()).toBe(1)
+  })
+})
+
+
+describe('concurrent repeats', () => {
+  // Found running the real poller: a startup run and a hot reload read the same publication
+  // at the same moment, both passed the "seen it before?" lookup, and both inserted.
+  it('stores one row when the same observation is recorded several times at once', async () => {
+    const observation = {
+      baseCurrency: 'CAD',
+      quoteCurrency: 'INR',
+      rate: 68.955,
+      observedAt: new Date('2026-09-11T15:00:00Z'),
+    }
+
+    const results = await Promise.all([fx.record(observation), fx.record(observation), fx.record(observation)])
+
+    expect(await db.fxRate.count()).toBe(1)
+    expect(results.every((fired) => Array.isArray(fired))).toBe(true)
+  })
+})

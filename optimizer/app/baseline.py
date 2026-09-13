@@ -72,6 +72,7 @@ def monthly_baseline(request: PlanRequest) -> PlanResponse:
         + sum(p.income_minor for p in periods)
         - sum(p.spending_minor for p in periods)
         - total_sent
+        - total_fees
     )
 
     return PlanResponse(

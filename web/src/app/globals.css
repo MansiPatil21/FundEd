@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+/*
+ * FundEd design tokens: sage green gradients, black accents, white cards on a warm canvas,
+ * soft grey tiles, pill shapes and tight display type.
+ *
+ * One light design on purpose. The Next.js starter shipped an unlayered
+ * `body { color: var(--foreground) }` with a dark-mode override; unlayered CSS beats
+ * Tailwind's layered utilities, so in dark mode text went near-white on white cards and
+ * pages looked blank. Base styles live inside @layer base so utilities win as intended.
+ */
+@theme {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --color-canvas: #efeee9;
+  --color-tile: #f4f4f1;
+  --color-ink: #0d0d0d;
+
+  --color-sage-50: #f2f5ec;
+  --color-sage-100: #e3eada;
+  --color-sage-200: #cbd8bb;
+  --color-sage-300: #afc39b;
+  --color-sage-400: #8fa77c;
+  --color-sage-500: #738d62;
+  --color-sage-600: #5c774f;
+  --color-sage-700: #4a6140;
+  --color-sage-800: #3a4c33;
+  --color-sage-900: #2b3826;
+}
+
+@utility bg-sage-gradient {
+  background-image: linear-gradient(168deg, #53704a 0%, #6b875c 36%, #97ad84 70%, #cfdcbf 100%);
+}
+
+@utility bg-hero-fade {
+  background-image: linear-gradient(180deg, #6c6c69 0%, #979794 38%, #cfcfcb 72%, #ebebe7 100%);
+}
+
+@utility tracking-display {
+  letter-spacing: -0.045em;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-canvas text-ink antialiased;
+  }
+
+  ::selection {
+    @apply bg-sage-200 text-ink;
+  }
+}

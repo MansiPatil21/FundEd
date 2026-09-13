@@ -173,3 +173,49 @@ def test_rejects_an_obligation_that_falls_outside_the_horizon():
             fees=FeeStructure(fixed_minor=0, variable_bps=0),
             opening_balance_minor=1_000,
         )
+
+
+def test_fees_count_against_the_minimum_balance():
+    """A transfer that fits the buffer on its own but not once its fee is paid must not be planned.
+
+    Before fees were counted, this plan was accepted and left the account 500 below the buffer.
+    """
+    request = PlanRequest(
+        periods=[period(0, 1.0)],
+        obligations=[Obligation(label="rent", due_on=START, amount_minor=90_000)],
+        fees=FeeStructure(fixed_minor=500, variable_bps=0),
+        opening_balance_minor=100_000,
+        minimum_balance_minor=10_000,
+    )
+
+    assert solve(request).status == "INFEASIBLE"
+
+
+def test_closing_balance_is_net_of_fees():
+    request = PlanRequest(
+        periods=[period(0, 1.0)],
+        obligations=[Obligation(label="rent", due_on=START, amount_minor=90_000)],
+        fees=FeeStructure(fixed_minor=500, variable_bps=100),  # 5.00 flat plus 1%
+        opening_balance_minor=100_000,
+        minimum_balance_minor=5_000,
+    )
+
+    plan = solve(request)
+
+    assert plan.status == "OPTIMAL"
+    assert plan.total_fees_minor == 500 + 900
+    assert plan.closing_balance_minor == 100_000 - 90_000 - 1_400
+    assert plan.closing_balance_minor >= 5_000
+
+
+def test_baseline_closing_balance_is_net_of_fees():
+    from app.baseline import monthly_baseline
+
+    request = PlanRequest(
+        periods=[period(0, 1.0)],
+        obligations=[Obligation(label="rent", due_on=START, amount_minor=90_000)],
+        fees=FeeStructure(fixed_minor=500, variable_bps=0),
+        opening_balance_minor=100_000,
+    )
+
+    assert monthly_baseline(request).closing_balance_minor == 100_000 - 90_000 - 500

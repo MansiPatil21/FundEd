@@ -10,6 +10,9 @@ import { createOptimiserClient } from './optimizer/client.js'
 import { createRateCache } from './fx/cache.js'
 import { createFxService } from './fx/service.js'
 import { attachRealtime } from './realtime/notifier.js'
+import { startFxPoller, type PollerHandles } from './jobs/fxPoller.js'
+import { parsePairs, redisConnection } from './jobs/pairs.js'
+import { createFrankfurterSource } from './fx/sources/frankfurter.js'
 
 /**
  * Composition root. Everything that touches the outside world is constructed here
@@ -45,6 +48,14 @@ async function start(): Promise<void> {
     // Start anyway. /health reports it and the orchestrator decides.
   })
 
+  // The FX service needs the notifier, which needs the HTTP server, which needs the app. The
+  // cycle is broken with a notifier that forwards to whichever one is attached by the time an
+  // alert fires. One instance serves the webhook, the API and the poller, so an alert cannot
+  // fire differently depending on which path delivered the rate.
+  const fx = createFxService(db, cache, {
+    alertTriggered: (trigger) => realtime?.alertTriggered(trigger),
+  })
+
   const app = await createApp({
     env,
     checkHealth,
@@ -53,12 +64,7 @@ async function start(): Promise<void> {
     shifts,
     obligations,
     optimiser,
-    // The FX service needs the notifier, which needs the HTTP server, which needs
-    // the app. The cycle is broken by giving the service a notifier that forwards
-    // to whichever one is attached by the time an alert actually fires.
-    fx: createFxService(db, cache, {
-      alertTriggered: (trigger) => realtime?.alertTriggered(trigger),
-    }),
+    fx,
     webhookSecret: env.FX_WEBHOOK_SECRET,
     graphql: { introspection: env.NODE_ENV !== 'production' },
   })
@@ -70,10 +76,35 @@ async function start(): Promise<void> {
     console.log(`funded-api listening on :${env.PORT}`)
   })
 
+  let poller: PollerHandles | undefined
+  if (env.FX_POLL_ENABLED) {
+    const pairs = parsePairs(env.FX_PAIRS)
+    try {
+      poller = await startFxPoller(
+        redisConnection(env.REDIS_URL),
+        fx,
+        createFrankfurterSource(env.FX_SOURCE_URL),
+        pairs,
+        env.FX_POLL_EVERY_MINUTES * 60_000,
+        { runNow: true },
+      )
+      poller.worker.on('completed', (job, result) =>
+        console.log(`fx poll ${job.data.base}/${job.data.quote} done, ${result.alertsTriggered} alerts triggered`),
+      )
+      // A failed poll is logged and retried on the next run. It must never take the API down.
+      poller.worker.on('failed', (job, error) =>
+        console.warn(`fx poll ${job?.data?.base}/${job?.data?.quote} failed: ${error.message}`),
+      )
+      console.log(`fx poller started for ${pairs.map((p) => `${p.base}/${p.quote}`).join(', ')} every ${env.FX_POLL_EVERY_MINUTES} min`)
+    } catch (error) {
+      console.warn(`fx poller not started: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
   const shutdown = async (signal: string): Promise<void> => {
     console.log(`${signal} received, shutting down`)
     server.close()
-    await Promise.allSettled([realtime?.close(), disconnect(), redis.quit()])
+    await Promise.allSettled([poller?.close(), realtime?.close(), disconnect(), redis.quit()])
     process.exit(0)
   }
 

@@ -9,7 +9,7 @@ import { z } from 'zod'
  * a suggested transfer schedule. So every failure here is converted into a typed
  * "unavailable" result rather than an exception that bubbles into a 500.
  *
- * The response is parsed with Zod rather than trusted (NFR-3). A separately deployed
+ * Responses are parsed with Zod rather than trusted (NFR-3). A separately deployed
  * service can be rolled forward independently, and a silently changed field would
  * otherwise become a wrong number on someone's dashboard.
  */
@@ -31,7 +31,20 @@ const planSchema = z.object({
   closing_balance_minor: z.number().int(),
 })
 
+const savingSchema = z.object({
+  paths: z.number().int(),
+  feasible_paths: z.number().int(),
+  mean_saving_minor: z.number(),
+  median_saving_minor: z.number(),
+  ci_low_minor: z.number(),
+  ci_high_minor: z.number(),
+  confidence: z.number(),
+  significant: z.boolean(),
+  caveat: z.string(),
+})
+
 export type OptimiserPlan = z.infer<typeof planSchema>
+export type OptimiserSaving = z.infer<typeof savingSchema>
 
 export interface PlanInput {
   periods: Array<{ on: string; rate: number; income_minor?: number; spending_minor?: number }>
@@ -47,71 +60,134 @@ export type PlanOutcome =
   | { kind: 'rejected'; reason: string }
   | { kind: 'unavailable'; reason: string }
 
+export type SavingOutcome =
+  | { kind: 'estimated'; saving: OptimiserSaving }
+  | { kind: 'rejected'; reason: string }
+  | { kind: 'unavailable'; reason: string }
+
+export interface SavingOptions {
+  paths?: number
+  confidence?: number
+}
+
 export interface OptimiserClient {
+  /** The optimal transfer schedule. */
   plan(input: PlanInput): Promise<PlanOutcome>
+  /** What sending a fixed amount on a fixed day each month would cost, for comparison. */
+  baseline(input: PlanInput): Promise<PlanOutcome>
+  /** The saving across simulated rate paths, with a confidence interval. CPU-heavy. */
+  saving(input: PlanInput, historicalRates: number[], options?: SavingOptions): Promise<SavingOutcome>
   healthy(): Promise<boolean>
 }
 
-export function createOptimiserClient(baseUrl: string, timeoutMs = 30_000): OptimiserClient {
-  const post = async (path: string, body: unknown): Promise<Response> =>
-    fetch(new URL(path, baseUrl), {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
-      // A solve is CPU-bound and can legitimately take seconds, but it must not hang
-      // a request forever if the service wedges.
-      signal: AbortSignal.timeout(timeoutMs),
-    })
+type CallResult<T> =
+  | { kind: 'ok'; value: T }
+  | { kind: 'rejected'; reason: string }
+  | { kind: 'unavailable'; reason: string }
+
+/**
+ * @param timeoutMs A single solve. Normally well under a second.
+ * @param savingTimeoutMs The uncertainty estimate, which solves once per simulated rate
+ *   path. Measured on a 180-day horizon: 40 paths took about 9 s and 120 took about 41 s,
+ *   so it gets its own, longer limit rather than sharing the one for a single solve.
+ */
+export function createOptimiserClient(
+  baseUrl: string,
+  timeoutMs = 30_000,
+  savingTimeoutMs = 90_000,
+): OptimiserClient {
+  async function call<T>(path: string, body: unknown, schema: z.ZodType<T>, limitMs: number): Promise<CallResult<T>> {
+    let response: Response
+    try {
+      response = await fetch(new URL(path, baseUrl), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+        // CPU-bound work can legitimately take seconds, but must not hang a request
+        // forever if the service wedges.
+        signal: AbortSignal.timeout(limitMs),
+      })
+    } catch (error) {
+      // Read `name` off the value rather than using `instanceof Error`. An AbortSignal
+      // timeout rejects with a DOMException, and `instanceof` compares prototypes from
+      // one realm: under a test runner that supplies its own globals the check silently
+      // returns false and every timeout would be misreported as a refused connection.
+      const name = (error as { name?: unknown })?.name
+      return {
+        kind: 'unavailable',
+        reason:
+          name === 'TimeoutError' || name === 'AbortError'
+            ? `optimiser did not respond within ${limitMs}ms`
+            : 'optimiser unreachable',
+      }
+    }
+
+    // 422 is the service telling us the request is impossible, e.g. an obligation that no
+    // period can fund. That is an answer, not an outage, so it becomes a rejection the
+    // user can act on.
+    if (response.status === 422) {
+      return { kind: 'rejected', reason: describeRejection(await response.json().catch(() => ({}))) }
+    }
+
+    if (!response.ok) {
+      return { kind: 'unavailable', reason: `optimiser returned ${response.status}` }
+    }
+
+    const parsed = schema.safeParse(await response.json().catch(() => null))
+    if (!parsed.success) {
+      return { kind: 'unavailable', reason: 'optimiser returned an unrecognised shape' }
+    }
+    return { kind: 'ok', value: parsed.data }
+  }
 
   return {
     async plan(input) {
-      let response: Response
-      try {
-        response = await post('/plan', input)
-      } catch (error) {
-        // Read `name` off the value rather than using `instanceof Error`. An
-        // AbortSignal timeout rejects with a DOMException, and `instanceof` compares
-        // prototypes from one realm: under a test runner that supplies its own
-        // globals the check silently returns false and every timeout would be
-        // misreported as a refused connection.
-        const name = (error as { name?: unknown })?.name
-        return {
-          kind: 'unavailable',
-          reason: name === 'TimeoutError' || name === 'AbortError'
-            ? `optimiser did not respond within ${timeoutMs}ms`
-            : 'optimiser unreachable',
-        }
-      }
+      const result = await call('/plan', input, planSchema, timeoutMs)
+      return result.kind === 'ok' ? { kind: 'planned', plan: result.value } : result
+    },
 
-      // 422 is the service telling us the request is impossible, e.g. an obligation
-      // that no period can fund. That is an answer, not an outage, so it is reported
-      // as a rejection the user can act on.
-      if (response.status === 422) {
-        const detail = await response.json().catch(() => ({}))
-        return { kind: 'rejected', reason: String((detail as { detail?: string }).detail ?? 'request rejected') }
-      }
+    async baseline(input) {
+      const result = await call('/baseline', input, planSchema, timeoutMs)
+      return result.kind === 'ok' ? { kind: 'planned', plan: result.value } : result
+    },
 
-      if (!response.ok) {
-        return { kind: 'unavailable', reason: `optimiser returned ${response.status}` }
-      }
-
-      const parsed = planSchema.safeParse(await response.json().catch(() => null))
-      if (!parsed.success) {
-        return { kind: 'unavailable', reason: 'optimiser returned an unrecognised shape' }
-      }
-
-      return { kind: 'planned', plan: parsed.data }
+    async saving(input, historicalRates, options = {}) {
+      const result = await call(
+        '/saving',
+        {
+          plan: input,
+          historical_rates: historicalRates,
+          paths: options.paths ?? 40,
+          confidence: options.confidence ?? 0.95,
+        },
+        savingSchema,
+        savingTimeoutMs,
+      )
+      return result.kind === 'ok' ? { kind: 'estimated', saving: result.value } : result
     },
 
     async healthy() {
       try {
-        const response = await fetch(new URL('/health', baseUrl), {
-          signal: AbortSignal.timeout(2_000),
-        })
+        const response = await fetch(new URL('/health', baseUrl), { signal: AbortSignal.timeout(2_000) })
         return response.ok
       } catch {
         return false
       }
     },
   }
+}
+
+/**
+ * FastAPI reports a 422 two ways: a string `detail` from an explicit HTTPException, or a
+ * list of validation errors when the request body itself is invalid. Stringifying the
+ * list would show a person "[object Object]".
+ */
+function describeRejection(body: unknown): string {
+  const detail = (body as { detail?: unknown })?.detail
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const message = (detail[0] as { msg?: unknown })?.msg
+    if (typeof message === 'string') return message
+  }
+  return 'request rejected'
 }

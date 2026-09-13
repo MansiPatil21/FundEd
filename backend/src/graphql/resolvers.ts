@@ -4,6 +4,7 @@ import { currentWeek, weeklyUsage } from '../compliance/workHours.js'
 import type { ShiftRepository } from '../shifts/repository.js'
 import type { ObligationRepository } from '../obligations/repository.js'
 import type { FxService } from '../fx/service.js'
+import { deadlineStatus } from '../deadlines/status.js'
 
 export interface GraphContext {
   userId: string | null
@@ -52,11 +53,15 @@ export const resolvers = {
     },
 
     async compliance(_parent: GraphContext, _args: unknown, context: GraphContext) {
-      const stored = await context.shifts.listFor(context.userId!)
-      const weeks = weeklyUsage(stored, 24)
+      const [stored, user] = await Promise.all([
+        context.shifts.listFor(context.userId!),
+        context.db.user.findUnique({ where: { id: context.userId! } }),
+      ])
+      const cap = user?.permit?.weeklyHourCap ?? 24
+      const weeks = weeklyUsage(stored, cap)
       return {
         weeks,
-        current: currentWeek(stored, 24, new Date()),
+        current: currentWeek(stored, cap, new Date()),
         breachedWeeks: weeks.filter((week) => week.breached).length,
       }
     },
@@ -94,6 +99,18 @@ export const resolvers = {
       const to = new Date(from.getTime() + days * DAY_MS)
       const occurrences = await context.obligations.occurrencesFor(context.userId!, from, to)
       return occurrences.reduce((total, occurrence) => total + occurrence.amountMinor, 0)
+    },
+
+    async deadlines(_parent: GraphContext, _args: unknown, context: GraphContext) {
+      const rows = await context.db.deadline.findMany({
+        where: { userId: context.userId! },
+        orderBy: { dueOn: 'asc' },
+      })
+      const now = new Date()
+      return rows.map((row) => {
+        const completedAt = row.completedAt ?? null
+        return { ...row, completedAt, ...deadlineStatus({ dueOn: row.dueOn, completedAt }, now) }
+      })
     },
   },
 

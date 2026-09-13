@@ -14,7 +14,9 @@ import type { TokenService } from './tokens.js'
 
 const signInSchema = z.object({
   email: z.string().email(),
-  displayName: z.string().min(1).max(120),
+  // Optional. The name is set during profile setup, and a returning student signing in
+  // again must not have it silently reset to whatever the sign-in form sent.
+  displayName: z.string().trim().min(1).max(120).optional(),
   homeCurrency: z.string().length(3).default('INR'),
 })
 
@@ -39,8 +41,8 @@ export function authRouter({ db, tokens, allowLocalSignIn }: AuthDeps): Router {
     // unique email index.
     const user = await db.user.upsert({
       where: { email },
-      update: { displayName },
-      create: { email, displayName, homeCurrency },
+      update: {},
+      create: { email, displayName: displayName ?? email.split('@')[0]!, homeCurrency },
     })
 
     res.json({

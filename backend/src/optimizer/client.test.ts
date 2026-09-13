@@ -132,3 +132,98 @@ describe('optimiser client', () => {
     expect(await createOptimiserClient(baseUrl).healthy()).toBe(false)
   })
 })
+
+describe('optimiser client: comparison and uncertainty', () => {
+  const planBody = {
+    status: 'BASELINE',
+    transfers: [{ send_on: '2027-01-01', amount_minor: 1_000, fee_minor: 399, rate: 60, received_home_minor: 60_000 }],
+    total_sent_minor: 1_000,
+    total_fees_minor: 399,
+    total_cost_minor: 1_399,
+    closing_balance_minor: 99_000,
+  }
+
+  const savingBody = {
+    paths: 40,
+    feasible_paths: 40,
+    mean_saving_minor: 5650.9,
+    median_saving_minor: 5600.1,
+    ci_low_minor: 4971.3,
+    ci_high_minor: 6354.4,
+    confidence: 0.95,
+    significant: true,
+    caveat: 'upper bound',
+  }
+
+  const json = (res: any, status: number, body: unknown) => {
+    res.writeHead(status, { 'content-type': 'application/json' })
+    res.end(JSON.stringify(body))
+  }
+
+  it('asks /baseline for the monthly comparison', async () => {
+    let path = ''
+    await startServer((req: any, res) => {
+      path = req.url
+      json(res, 200, planBody)
+    })
+
+    const outcome = await createOptimiserClient(baseUrl).baseline(input)
+
+    expect(path).toBe('/baseline')
+    expect(outcome.kind).toBe('planned')
+  })
+
+  it('sends the rate history and path count for the uncertainty estimate', async () => {
+    let received: { url: string; body: any } | undefined
+    await startServer((req: any, res) => {
+      let raw = ''
+      req.on('data', (chunk: Buffer) => (raw += chunk))
+      req.on('end', () => {
+        received = { url: req.url, body: JSON.parse(raw) }
+        json(res, 200, savingBody)
+      })
+    })
+
+    const outcome = await createOptimiserClient(baseUrl).saving(input, [60, 60.5, 61], { paths: 40 })
+
+    expect(received?.url).toBe('/saving')
+    expect(received?.body.historical_rates).toEqual([60, 60.5, 61])
+    expect(received?.body.paths).toBe(40)
+    expect(outcome.kind).toBe('estimated')
+  })
+
+  it('refuses an uncertainty estimate whose shape is wrong', async () => {
+    await startServer((_req, res) => json(res, 200, { ...savingBody, mean_saving_minor: 'lots' }))
+
+    const outcome = await createOptimiserClient(baseUrl).saving(input, [60, 60.5, 61])
+
+    expect(outcome.kind).toBe('unavailable')
+  })
+
+  // FastAPI sends body-validation failures as a list, and stringifying it shows "[object Object]".
+  it('reads the first message out of a FastAPI validation list', async () => {
+    await startServer((_req, res) =>
+      json(res, 422, { detail: [{ msg: 'need at least 3 historical observations', loc: ['body'] }] }),
+    )
+
+    const outcome = await createOptimiserClient(baseUrl).saving(input, [60, 61, 62])
+
+    expect(outcome.kind).toBe('rejected')
+    if (outcome.kind === 'rejected') {
+      expect(outcome.reason).toContain('need at least 3')
+    }
+  })
+
+  it('gives the uncertainty estimate its own, longer timeout', async () => {
+    await startServer(() => {
+      // Never responds.
+    })
+
+    const outcome = await createOptimiserClient(baseUrl, 50, 400).saving(input, [60, 61, 62])
+
+    expect(outcome.kind).toBe('unavailable')
+    if (outcome.kind === 'unavailable') {
+      expect(outcome.reason).toContain('400ms')
+    }
+  })
+})

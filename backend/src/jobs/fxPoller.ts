@@ -32,6 +32,7 @@ export async function startFxPoller(
   source: RateSource,
   pairs: Array<{ base: string; quote: string }>,
   everyMs = 15 * 60_000,
+  options: { runNow?: boolean } = {},
 ): Promise<PollerHandles> {
   const queue = new Queue(FX_QUEUE, { connection })
 
@@ -41,6 +42,11 @@ export async function startFxPoller(
       { every: everyMs },
       { name: 'poll', data: pair },
     )
+  }
+
+  // A schedule's first run waits a whole interval. At startup the latest rate is wanted now.
+  if (options.runNow) {
+    for (const pair of pairs) await queue.add('poll', pair)
   }
 
   const worker = new Worker(

@@ -37,19 +37,39 @@ export function createFxService(
 ): FxService {
   return {
     async record(observation) {
+      // The poller re-reads the same daily publication every few hours, and a webhook can be
+      // redelivered. Storing each repeat would fill the history with zero day-to-day changes
+      // and understate how much rates actually move. This lookup is only the fast path; the
+      // unique index below is what actually guarantees one row per observation.
+      const repeat = await db.fxRate.findFirst({
+        where: {
+          baseCurrency: observation.baseCurrency,
+          quoteCurrency: observation.quoteCurrency,
+          observedAt: observation.observedAt,
+        },
+      })
+      if (repeat) return []
+
       const previous = await db.fxRate.findFirst({
         where: { baseCurrency: observation.baseCurrency, quoteCurrency: observation.quoteCurrency },
         orderBy: { observedAt: 'desc' },
       })
 
-      await db.fxRate.create({
-        data: {
-          baseCurrency: observation.baseCurrency,
-          quoteCurrency: observation.quoteCurrency,
-          rate: observation.rate,
-          observedAt: observation.observedAt,
-        },
-      })
+      try {
+        await db.fxRate.create({
+          data: {
+            baseCurrency: observation.baseCurrency,
+            quoteCurrency: observation.quoteCurrency,
+            rate: observation.rate,
+            observedAt: observation.observedAt,
+          },
+        })
+      } catch (error) {
+        // Two deliveries of one observation raced past the lookup above. The unique index let
+        // exactly one insert win; this one is a repeat, not a failure.
+        if ((error as { code?: unknown })?.code === 'P2002') return []
+        throw error
+      }
 
       await cache.put(observation.baseCurrency, observation.quoteCurrency, {
         rate: observation.rate,

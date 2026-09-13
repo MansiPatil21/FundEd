@@ -64,7 +64,7 @@ The API returns that caveat in the response body rather than leaving it in the d
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python -m pytest tests/ -q          # 23 tests
-.venv/bin/uvicorn app.main:app --port 5000
+.venv/bin/uvicorn app.main:app --port 5050   # macOS reserves 5000 for AirPlay
 ```
 
 ## Endpoints

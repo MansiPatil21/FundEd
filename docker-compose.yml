@@ -1,3 +1,7 @@
+# `docker compose up -d`                     MongoDB and Redis only, for local development.
+# `docker compose --profile full up --build` the whole product behind Nginx on :8080
+#                                            (or FUNDED_HTTP_PORT).
+
 services:
   mongo:
     image: mongo:7
@@ -28,6 +32,61 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+
+  # Creates indexes, including the unique ones correctness depends on, before the API starts.
+  migrate:
+    profiles: ["full"]
+    build: { context: ./backend, target: build }
+    command: ["npx", "prisma", "db", "push", "--skip-generate"]
+    environment:
+      DATABASE_URL: mongodb://mongo:27017/funded?replicaSet=rs0&directConnection=true
+    depends_on:
+      mongo: { condition: service_healthy }
+
+  optimizer:
+    profiles: ["full"]
+    build: ./optimizer
+
+  api:
+    profiles: ["full"]
+    build: { context: ./backend, target: runtime }
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      DATABASE_URL: mongodb://mongo:27017/funded?replicaSet=rs0&directConnection=true
+      REDIS_URL: redis://redis:6379
+      OPTIMIZER_URL: http://optimizer:5000
+      CORS_ORIGIN: http://localhost:${FUNDED_HTTP_PORT:-8080}
+      # No default and no compose-level check. Compose interpolates every service even outside
+      # the active profile, so a ":?" guard here broke plain `docker compose up` for local
+      # development. The API refuses to boot without these anyway (config/env.ts).
+      JWT_SECRET: ${JWT_SECRET:-}
+      FX_WEBHOOK_SECRET: ${FX_WEBHOOK_SECRET:-}
+      FX_POLL_ENABLED: ${FX_POLL_ENABLED:-false}
+      FX_PAIRS: ${FX_PAIRS:-CAD:INR}
+      ALLOW_LOCAL_SIGN_IN: ${ALLOW_LOCAL_SIGN_IN:-false}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      optimizer: { condition: service_started }
+
+  web:
+    profiles: ["full"]
+    build: ./web
+    depends_on:
+      api: { condition: service_started }
+
+  nginx:
+    profiles: ["full"]
+    image: nginx:1.27-alpine
+    ports:
+      # Override with FUNDED_HTTP_PORT when 8080 is already taken on the host.
+      - "${FUNDED_HTTP_PORT:-8080}:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      web: { condition: service_started }
+      api: { condition: service_started }
 
 volumes:
   funded-mongo:

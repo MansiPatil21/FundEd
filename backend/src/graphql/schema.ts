@@ -73,6 +73,32 @@ export const typeDefs = /* GraphQL */ `
     homeCurrency: String!
   }
 
+  enum DeadlineKind {
+    TUITION
+    GIC_RELEASE
+    PERMIT_EXPIRY
+    TAX_FILING
+    OTHER
+  }
+
+  enum DeadlineStatus {
+    DONE
+    OVERDUE
+    DUE_SOON
+    UPCOMING
+  }
+
+  type Deadline {
+    id: ID!
+    label: String!
+    kind: DeadlineKind!
+    dueOn: DateTime!
+    completedAt: DateTime
+    "Calendar days until it falls due. Negative once it has passed."
+    daysLeft: Int!
+    status: DeadlineStatus!
+  }
+
   type Dashboard {
     viewer: Viewer!
     compliance: Compliance!
@@ -82,6 +108,8 @@ export const typeDefs = /* GraphQL */ `
     rate(quoteCurrency: String): Rate
     "Total of every obligation occurrence falling in the next N days, in home-currency minor units."
     upcomingObligationsMinor(days: Int = 30): Int!
+    "Every deadline, soonest first, with where it stands today."
+    deadlines: [Deadline!]!
   }
 
   type Query {

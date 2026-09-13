@@ -28,8 +28,12 @@ model User {
   homeCurrency   String   // ISO 4217, e.g. INR
   localCurrency  String   @default("CAD")
   createdAt      DateTime @default(now())
+  // Set once profile setup is finished. Read as a value on a fetched user, never used
+  // as a query filter: on MongoDB an unset field is ABSENT, not null (ADR 0004).
+  onboardedAt    DateTime?
 
   permit         StudyPermit?
+  budget         Budget?
   shifts         Shift[]
   obligations    Obligation[]
   deadlines      Deadline[]
@@ -42,11 +46,21 @@ model User {
 // Embedded, not a collection: a permit has no meaning apart from its holder and is
 // always read with them.
 type StudyPermit {
-  permitNumber     String
+  // Optional: the product works without it, and a permit number is not something
+  // to demand before a student has seen any value.
+  permitNumber     String?
   expiresOn        DateTime
   weeklyHourCap    Int      @default(24) // off-campus cap during study terms
   institution      String
   programEndsOn    DateTime
+}
+
+// Monthly figures from profile setup, all in local-currency minor units. Embedded
+// for the same reason as the permit: no meaning apart from the student.
+type Budget {
+  monthlyIncomeMinor   Int
+  monthlySpendingMinor Int
+  minimumBufferMinor   Int
 }
 
 // Work-hour compliance (feature 1). One row per shift so the weekly rolling total
@@ -165,6 +179,9 @@ model FxRate {
   rate          Float
   observedAt    DateTime
 
-  @@index([baseCurrency, quoteCurrency, observedAt])
+  // Unique, not just indexed. The same observation arriving twice at once (a startup poll
+  // and a scheduled one, or a redelivered webhook) passes any check done in code before
+  // both inserts land. Only the database can make one of them lose.
+  @@unique([baseCurrency, quoteCurrency, observedAt])
   @@map("fx_rates")
 }

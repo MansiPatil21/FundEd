@@ -6,7 +6,7 @@ import { loadEnv } from '../config/env.js'
 import { createTokenService } from '../auth/tokens.js'
 import { createShiftRepository } from '../shifts/repository.js'
 import { createObligationRepository } from '../obligations/repository.js'
-import type { OptimiserClient, PlanOutcome } from '../optimizer/client.js'
+import type { OptimiserClient, OptimiserSaving, PlanOutcome } from '../optimizer/client.js'
 
 /**
  * End-to-end over the planning path, against the real database.
@@ -27,9 +27,12 @@ const env = loadEnv({
   FX_WEBHOOK_SECRET: 'webhook-secret-16+',
 } as NodeJS.ProcessEnv)
 
-const stubOptimiser = (outcome: PlanOutcome): OptimiserClient => ({
+const stubOptimiser = (outcome: PlanOutcome, overrides: Partial<OptimiserClient> = {}): OptimiserClient => ({
   plan: async () => outcome,
+  baseline: async () => outcome,
+  saving: async () => ({ kind: 'unavailable', reason: 'saving not stubbed' }),
   healthy: async () => outcome.kind !== 'unavailable',
+  ...overrides,
 })
 
 const appWith = (optimiser: OptimiserClient) =>
@@ -91,6 +94,7 @@ const planBody = {
 }
 
 beforeEach(async () => {
+  await db.fxRate.deleteMany()
   await db.obligation.deleteMany()
   await db.shift.deleteMany()
   await db.user.deleteMany()
@@ -210,5 +214,157 @@ describe('POST /api/plan', () => {
 
     expect(response.status).toBe(400)
     expect(response.body.error).toBe('validation_failed')
+  })
+})
+
+
+const baselineOutcome: PlanOutcome = {
+  kind: 'planned',
+  plan: {
+    status: 'BASELINE',
+    transfers: [
+      { send_on: '2027-01-01', amount_minor: 14_000, fee_minor: 500, rate: 61, received_home_minor: 854_000 },
+      { send_on: '2027-02-01', amount_minor: 14_000, fee_minor: 500, rate: 61, received_home_minor: 854_000 },
+      { send_on: '2027-03-01', amount_minor: 14_000, fee_minor: 500, rate: 61, received_home_minor: 854_000 },
+    ],
+    total_sent_minor: 41_000,
+    total_fees_minor: 1_500,
+    total_cost_minor: 42_500,
+    closing_balance_minor: 9_000,
+  },
+}
+
+describe('comparison with sending monthly', () => {
+  it('reports what the plan saves over fixed monthly transfers', async () => {
+    const app = await appWith(stubOptimiser(plannedOutcome, { baseline: async () => baselineOutcome }))
+    const token = await signIn(app)
+    await addObligation(app, token)
+
+    const response = await request(app).post('/api/plan').set('Authorization', `Bearer ${token}`).send(planBody)
+
+    expect(response.status).toBe(200)
+    expect(response.body.baseline).toEqual({ transfers: 3, totalFeesMinor: 1_500, totalCostMinor: 42_500 })
+    // 42,500 for monthly transfers against 41,499 for the plan.
+    expect(response.body.savingMinor).toBe(1_001)
+    expect(response.body.caveat).toContain('fewer transfer fees')
+  })
+
+  it('still returns the plan when only the comparison is unavailable', async () => {
+    const app = await appWith(
+      stubOptimiser(plannedOutcome, { baseline: async () => ({ kind: 'unavailable', reason: 'down' }) }),
+    )
+    const token = await signIn(app)
+    await addObligation(app, token)
+
+    const response = await request(app).post('/api/plan').set('Authorization', `Bearer ${token}`).send(planBody)
+
+    expect(response.status).toBe(200)
+    expect(response.body.transfers).toHaveLength(1)
+    expect(response.body.baseline).toBeNull()
+    expect(response.body.savingMinor).toBeNull()
+  })
+})
+
+describe('POST /api/plan/saving', () => {
+  const estimated: OptimiserSaving = {
+    paths: 40,
+    feasible_paths: 40,
+    mean_saving_minor: 5_650.875,
+    median_saving_minor: 5_602.5,
+    ci_low_minor: 4_971.306875,
+    ci_high_minor: 6_354.4175,
+    confidence: 0.95,
+    significant: true,
+    caveat: 'upper bound on what perfect timing is worth',
+  }
+
+  /** Inserted newest first, so the test proves the API returns them oldest first. */
+  const seedRates = (rates: number[], quoteCurrency = 'INR') =>
+    db.fxRate.createMany({
+      data: rates
+        .map((rate, day) => ({
+          baseCurrency: 'CAD',
+          quoteCurrency,
+          rate,
+          observedAt: new Date(Date.UTC(2026, 7, 1 + day, 14)),
+        }))
+        .reverse(),
+    })
+
+  it('explains that it needs more observed rates instead of guessing', async () => {
+    const app = await appWith(stubOptimiser(plannedOutcome))
+    const token = await signIn(app)
+    await addObligation(app, token)
+    await seedRates([61.0, 61.2])
+
+    const response = await request(app).post('/api/plan/saving').set('Authorization', `Bearer ${token}`).send(planBody)
+
+    expect(response.status).toBe(422)
+    expect(response.body.error).toBe('not_enough_history')
+    expect(response.body.observed).toBe(2)
+    expect(response.body.message).toContain('at least 3')
+  })
+
+  it("estimates from the student's observed rates, oldest first, in whole minor units", async () => {
+    let received: number[] = []
+    const app = await appWith(
+      stubOptimiser(plannedOutcome, {
+        saving: async (_input, history) => {
+          received = history
+          return { kind: 'estimated', saving: estimated }
+        },
+      }),
+    )
+    const token = await signIn(app)
+    await addObligation(app, token)
+    await seedRates([61.0, 61.2, 61.1, 61.5, 61.4])
+
+    const response = await request(app).post('/api/plan/saving').set('Authorization', `Bearer ${token}`).send(planBody)
+
+    expect(response.status).toBe(200)
+    expect(received).toEqual([61.0, 61.2, 61.1, 61.5, 61.4])
+    expect(response.body).toMatchObject({
+      historyUsed: 5,
+      meanSavingMinor: 5_651,
+      ciLowMinor: 4_971,
+      ciHighMinor: 6_354,
+      significant: true,
+    })
+  })
+
+  it("ignores rates for a currency pair that is not the student's", async () => {
+    const app = await appWith(stubOptimiser(plannedOutcome))
+    const token = await signIn(app)
+    await addObligation(app, token)
+    await seedRates([700, 705, 702, 710], 'NGN')
+
+    const response = await request(app).post('/api/plan/saving').set('Authorization', `Bearer ${token}`).send(planBody)
+
+    expect(response.status).toBe(422)
+    expect(response.body.observed).toBe(0)
+  })
+
+  it('returns 503 naming the unavailable estimate, not a 500', async () => {
+    const app = await appWith(stubOptimiser(plannedOutcome))
+    const token = await signIn(app)
+    await addObligation(app, token)
+    await seedRates([61.0, 61.2, 61.1])
+
+    const response = await request(app).post('/api/plan/saving').set('Authorization', `Bearer ${token}`).send(planBody)
+
+    expect(response.status).toBe(503)
+    expect(response.body.error).toBe('optimiser_unavailable')
+    expect(response.body.hint).toContain('plan still works')
+  })
+
+  it('refuses to estimate when nothing falls due in the horizon', async () => {
+    const app = await appWith(stubOptimiser(plannedOutcome))
+    const token = await signIn(app)
+    await seedRates([61.0, 61.2, 61.1])
+
+    const response = await request(app).post('/api/plan/saving').set('Authorization', `Bearer ${token}`).send(planBody)
+
+    expect(response.status).toBe(422)
+    expect(response.body.error).toBe('nothing_to_plan')
   })
 })

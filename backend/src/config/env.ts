@@ -12,13 +12,25 @@ const schema = z.object({
   PORT: z.coerce.number().int().positive().default(4000),
   DATABASE_URL: z.string().min(1),
   REDIS_URL: z.string().min(1).default('redis://localhost:6380'),
-  OPTIMIZER_URL: z.string().url().default('http://localhost:5000'),
+  // 5050 locally because macOS reserves port 5000 for AirPlay Receiver. In compose the
+  // service is reached by name on its own network, so this default is not used there.
+  OPTIMIZER_URL: z.string().url().default('http://localhost:5050'),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
   // No default. A signing secret that falls back to a known string is worse than
   // one that is missing, because the missing one fails loudly at boot.
   JWT_SECRET: z.string().min(24),
   JWT_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
   FX_WEBHOOK_SECRET: z.string().min(16),
+  // Scheduled rate polling. Off unless asked for, so tests and a bare checkout never make
+  // outbound calls.
+  FX_POLL_ENABLED: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  FX_PAIRS: z.string().default('CAD:INR'),
+  FX_POLL_EVERY_MINUTES: z.coerce.number().int().min(1).default(360),
+  FX_SOURCE_URL: z.string().url().default('https://api.frankfurter.dev/v1'),
+  // Email-only sign-in is for development and is refused in production unless explicitly
+  // allowed. The switch exists so the production images can be run locally; never set it on a
+  // deployment reachable from the internet.
+  ALLOW_LOCAL_SIGN_IN: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 })
 

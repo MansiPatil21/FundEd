@@ -44,6 +44,7 @@ beforeAll(async () => {
 })
 
 beforeEach(async () => {
+  await db.deadline.deleteMany()
   await db.fxAlert.deleteMany()
   await db.fxRate.deleteMany()
   await db.obligation.deleteMany()
@@ -196,5 +197,33 @@ describe('the dashboard query', () => {
 
     expect(response.body.data.dashboard.alerts[0].spent).toBe(true)
     expect(response.body.data.dashboard.alerts[0].triggeredAt).toEqual(expect.any(String))
+  })
+})
+
+
+describe('deadlines on the dashboard', () => {
+  it('returns deadlines soonest first with their status', async () => {
+    const token = await signIn()
+    const user = await db.user.findUnique({ where: { email: 'graph@example.com' } })
+    const inDays = (days: number) => {
+      const date = new Date()
+      date.setDate(date.getDate() + days)
+      date.setHours(12, 0, 0, 0)
+      return date
+    }
+    await db.deadline.createMany({
+      data: [
+        { userId: user!.id, label: 'Permit expiry', kind: 'PERMIT_EXPIRY', dueOn: inDays(90) },
+        { userId: user!.id, label: 'Tuition', kind: 'TUITION', dueOn: inDays(3) },
+      ],
+    })
+
+    const response = await query({ query: '{ dashboard { deadlines { label kind daysLeft status } } }' }, token)
+
+    expect(response.body.errors).toBeUndefined()
+    expect(response.body.data.dashboard.deadlines).toEqual([
+      { label: 'Tuition', kind: 'TUITION', daysLeft: 3, status: 'DUE_SOON' },
+      { label: 'Permit expiry', kind: 'PERMIT_EXPIRY', daysLeft: 90, status: 'UPCOMING' },
+    ])
   })
 })
