@@ -98,7 +98,7 @@ function messageFrom(body: unknown, status: number): string {
  * The name the student chose, or '' if they have not chosen one.
  *
  * Accounts created before setup asked for a name were given the local part of their email
- * ("mansican908"), which is not a name anyone wants to be greeted by. Those are treated
+ * (such as "jane.doe42"), which is not a name anyone wants to be greeted by. Those are treated
  * as unnamed so the dashboard asks.
  */
 export function chosenName(profile: Pick<Profile, 'displayName' | 'email'>): string {

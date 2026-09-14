@@ -242,7 +242,7 @@ function ProfileStep() {
             id="displayName"
             data-testid="display-name"
             autoComplete="name"
-            placeholder="Mansi Patil"
+            placeholder="First and last name"
             value={w.displayName}
             onChange={(event) => dispatch(setDisplayName(event.target.value))}
           />

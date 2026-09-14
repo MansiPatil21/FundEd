@@ -196,7 +196,7 @@ function NamePrompt({ onSaved }: { onSaved: (name: string) => void }) {
               data-testid="name-prompt-input"
               autoComplete="given-name"
               maxLength={120}
-              placeholder="Mansi"
+              placeholder="Your first name"
               value={value}
               onChange={(event) => setValue(event.target.value)}
             />

@@ -88,7 +88,7 @@ export default function SignupPage() {
             autoComplete="name"
             autoFocus
             maxLength={120}
-            placeholder="Mansi Patil"
+            placeholder="First and last name"
             value={name}
             onChange={(event) => setName(event.target.value)}
             onBlur={leave('name', name)}
