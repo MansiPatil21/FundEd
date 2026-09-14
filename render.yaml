@@ -1,0 +1,72 @@
+# Render Blueprint for the API, the optimizer and Redis. The web app deploys to Vercel.
+# Step-by-step setup, including MongoDB Atlas and the two URLs to fill in: docs/DEPLOYMENT.md
+
+services:
+  - type: web
+    name: funded-api
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    # Creates the MongoDB indexes, including the unique ones correctness depends on, then starts.
+    # A pre-deploy command would be the usual home for this, but free services start here instead.
+    dockerCommand: npm run start:deploy
+    # Liveness, not /health: the optimizer sleeps on its own schedule on the free plan, and a
+    # dependency report would make Render restart a working API whenever it did.
+    healthCheckPath: /health/live
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - backend/**
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        # MongoDB Atlas connection string, with the database name: .../funded?retryWrites=true&w=majority
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: funded-redis
+          property: connectionString
+      - key: OPTIMIZER_URL
+        # The optimizer's public URL, such as https://funded-optimizer.onrender.com. Free web
+        # services cannot receive private network traffic, so the internal hostname would not answer.
+        sync: false
+      - key: CORS_ORIGIN
+        # The Vercel URL, with no trailing slash. Comma-separate to allow a preview URL as well.
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FX_WEBHOOK_SECRET
+        generateValue: true
+      - key: FX_POLL_ENABLED
+        value: "true"
+      - key: FX_PAIRS
+        value: CAD:INR
+      - key: ALLOW_LOCAL_SIGN_IN
+        value: "false"
+
+  - type: web
+    name: funded-optimizer
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./optimizer/Dockerfile
+    dockerContext: ./optimizer
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    buildFilter:
+      paths:
+        - optimizer/**
+
+  - type: keyvalue
+    name: funded-redis
+    plan: free
+    region: oregon
+    # Empty: reachable only from services inside Render, never from the internet.
+    ipAllowList: []
+    # BullMQ requires noeviction; evicting its keys would silently drop scheduled rate polls.
+    # Cached rates carry their own expiry, so nothing grows without bound.
+    maxmemoryPolicy: noeviction

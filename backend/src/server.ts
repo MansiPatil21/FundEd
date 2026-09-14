@@ -70,7 +70,9 @@ async function start(): Promise<void> {
   })
 
   const server = createServer(app)
-  realtime = attachRealtime(server, tokens, env.CORS_ORIGIN)
+  // The same comma-separated allow-list the REST API uses, so a production and a preview web
+  // origin can both open a socket. Socket.IO matches an array entry exactly, not a joined string.
+  realtime = attachRealtime(server, tokens, env.CORS_ORIGIN.split(',').map((origin) => origin.trim()))
 
   server.listen(env.PORT, () => {
     console.log(`funded-api listening on :${env.PORT}`)

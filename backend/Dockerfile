@@ -1,5 +1,5 @@
 # Build stage: compile TypeScript and generate the Prisma client. Also used on its own by
-# the compose "migrate" service, because the Prisma CLI is a dev dependency.
+# the compose "migrate" service.
 FROM node:22-alpine AS build
 RUN apk add --no-cache openssl
 WORKDIR /app
@@ -20,6 +20,9 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/dist ./dist
+# The schema and the Prisma CLI (a production dependency) let `npm run start:deploy` create the
+# indexes before serving, for hosts with no separate migration step, such as Render's free plan.
+COPY prisma ./prisma
 USER node
 EXPOSE 4000
 HEALTHCHECK --interval=15s --timeout=3s --retries=5 CMD wget -qO- http://127.0.0.1:4000/health >/dev/null || exit 1

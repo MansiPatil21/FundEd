@@ -51,6 +51,7 @@ cd web && npm ci && npm run dev                               # http://localhost
 - [Technical design](docs/TECHNICAL_DESIGN.md): architecture, flows, interfaces, performance, limits
 - [UML and architecture diagrams](docs/DIAGRAMS.md): components, domain model, sequences, deadline states
 - [Test plan](docs/TEST_PLAN.md): strategy, coverage, and the regression test behind each bug found
+- [Deployment](docs/DEPLOYMENT.md): MongoDB Atlas, Render (`render.yaml`) and Vercel, step by step
 - [Requirements](docs/REQUIREMENTS.md) and [architecture decision records](docs/adr)
 
 ## Status and limits

@@ -88,7 +88,17 @@ export async function createApp({
   )
 
   /**
-   * Liveness and readiness in one place. Returns 503 when any dependency is down so
+   * Liveness only: 200 whenever this process can answer. Hosting platforms restart a service
+   * that fails its health check, and on Render's free plan the optimizer sleeps on its own
+   * schedule, so pointing the platform at /health would restart a working API every time the
+   * optimizer dozed off. The platform checks this; people and dashboards read /health.
+   */
+  app.get('/health/live', (_req: Request, res: Response) => {
+    res.json({ status: 'ok' })
+  })
+
+  /**
+   * Readiness: the state of every dependency. Returns 503 when any dependency is down so
    * an orchestrator stops routing traffic here, rather than 200 with a sad payload
    * that nothing acts on.
    */

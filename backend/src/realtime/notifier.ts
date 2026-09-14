@@ -25,7 +25,7 @@ export interface RealtimeNotifier extends Notifier {
 export function attachRealtime(
   server: HttpServer,
   tokens: TokenService,
-  corsOrigin: string,
+  corsOrigin: string | string[],
 ): RealtimeNotifier {
   const io = new SocketServer(server, {
     cors: { origin: corsOrigin, credentials: true },
