@@ -56,7 +56,8 @@ cd web && npm ci && npm run dev                               # http://localhost
 
 ## Status and limits
 
-Built and tested locally; not deployed to a public cloud. Accounts use email and password, with
+Live at https://fund-ed-sigma.vercel.app, with the web app on Vercel, the API and optimizer on
+Render, and MongoDB on Atlas ([deployment guide](docs/DEPLOYMENT.md)). Accounts use email and password, with
 scrypt hashing and limits on repeated failed sign-ins.
 Plans assume one flat exchange rate, and exchange rates are the ECB's daily reference rates. See
 the technical design for the full list.

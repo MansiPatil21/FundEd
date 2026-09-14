@@ -159,4 +159,5 @@ image build.
   instance would need them moved to Redis.
 - Deadlines are raised in the app; there are no email or push reminders.
 - Plans are computed on request and not stored; the `TransferPlan` model is defined but unused.
-- Not deployed to a public cloud.
+- Hosted on free tiers (Vercel, Render, MongoDB Atlas). Render's free services sleep after 15 minutes
+  without traffic, so the first request after a quiet spell takes about a minute.
