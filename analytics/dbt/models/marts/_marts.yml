@@ -1,0 +1,70 @@
+version: 2
+
+models:
+  - name: dim_date
+    description: Continuous calendar spanning every date the facts refer to.
+    columns:
+      - name: date_day
+        data_tests: [unique, not_null]
+
+  - name: dim_currency
+    columns:
+      - name: currency_code
+        data_tests: [unique, not_null]
+
+  - name: fct_fx_rates
+    description: One row per currency pair per ECB publication day, with the change from the previous publication.
+    columns:
+      - name: fx_rate_key
+        data_tests: [unique, not_null]
+      - name: quote_currency
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_currency')
+                field: currency_code
+      - name: rate_date
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_day
+
+  - name: fct_fx_alerts
+    description: One row per rate alert, with when it fired and how long that took.
+    columns:
+      - name: alert_id
+        data_tests: [unique, not_null]
+      - name: trigger_rate_observed_at
+        description: When the rate that satisfied the alert was observed. Can precede created_at.
+      - name: fired_at
+        description: When the alert actually fired, the later of trigger_rate_observed_at and created_at.
+      - name: fired_on_first_check
+        description: The alert was already satisfied by the newest rate when it was created.
+        data_tests: [not_null]
+      - name: created_date
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_day
+
+  - name: fct_work_shifts
+    columns:
+      - name: shift_id
+        data_tests: [unique, not_null]
+
+  - name: mart_weekly_alert_activity
+    columns:
+      - name: week_start
+        data_tests: [unique, not_null]
+
+  - name: mart_rate_volatility
+    columns:
+      - name: publication_days
+        data_tests: [not_null]
+
+  - name: mart_weekly_work_hours
+    columns:
+      - name: over_cap
+        data_tests: [not_null]

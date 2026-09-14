@@ -1,0 +1,6 @@
+# Extract-load package (funded_elt). The Airflow image installs pymongo and psycopg under
+# Airflow's own constraints instead; these pins are for CI and local runs.
+httpx==0.28.1
+psycopg[binary]==3.3.5
+pydantic==2.13.5
+pymongo==4.18.1

@@ -1,0 +1,21 @@
+name: funded_analytics
+version: "1.0.0"
+profile: funded_analytics
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  funded_analytics:
+    # Staging: one view per raw table, typed and renamed, no business logic. Views, so they
+    # are always exactly the raw data and cost nothing to rebuild.
+    staging:
+      +schema: staging
+      +materialized: view
+    # Marts: the star schema and the reporting tables built on it. Tables, so dashboards
+    # read precomputed results instead of re-running the joins.
+    marts:
+      +schema: marts
+      +materialized: table

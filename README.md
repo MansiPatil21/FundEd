@@ -52,6 +52,7 @@ cd web && npm ci && npm run dev                               # http://localhost
 - [UML and architecture diagrams](docs/DIAGRAMS.md): components, domain model, sequences, deadline states
 - [Test plan](docs/TEST_PLAN.md): strategy, coverage, and the regression test behind each bug found
 - [Deployment](docs/DEPLOYMENT.md): MongoDB Atlas, Render (`render.yaml`) and Vercel, step by step
+- [Analytics pipeline](analytics/README.md): daily ELT with Airflow and dbt into a tested PostgreSQL star schema
 - [Requirements](docs/REQUIREMENTS.md) and [architecture decision records](docs/adr)
 
 ## Status and limits

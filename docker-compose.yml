@@ -1,6 +1,9 @@
 # `docker compose up -d`                     MongoDB and Redis only, for local development.
 # `docker compose --profile full up --build` the whole product behind Nginx on :8080
 #                                            (or FUNDED_HTTP_PORT).
+# `docker compose --profile analytics up --build`
+#                                            the ELT pipeline: a PostgreSQL warehouse on :5433 and
+#                                            Airflow on :8090. See analytics/README.md.
 
 services:
   mongo:
@@ -88,5 +91,49 @@ services:
       web: { condition: service_started }
       api: { condition: service_started }
 
+  # Analytics warehouse. Port 5433 on the host so a local PostgreSQL on 5432 does not collide.
+  warehouse:
+    profiles: ["analytics"]
+    image: postgres:16-alpine
+    container_name: funded-warehouse
+    environment:
+      POSTGRES_USER: funded
+      POSTGRES_PASSWORD: funded
+      POSTGRES_DB: warehouse
+    ports:
+      - "5433:5432"
+    volumes:
+      - funded-warehouse:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U funded -d warehouse"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  airflow:
+    profiles: ["analytics"]
+    build: ./analytics
+    container_name: funded-airflow
+    # Scheduler, API server, DAG processor and triggerer in one container with a SQLite metadata
+    # database: right for one machine, and what production would split into separate services.
+    command: ["standalone"]
+    environment:
+      WAREHOUSE_HOST: warehouse
+      WAREHOUSE_PORT: "5432"
+      WAREHOUSE_USER: funded
+      WAREHOUSE_PASSWORD: funded
+      WAREHOUSE_DB: warehouse
+      MONGO_URL: mongodb://mongo:27017/funded?replicaSet=rs0&directConnection=true
+      FX_SYMBOLS: ${FX_SYMBOLS:-INR,CNY,PHP,KRW,USD}
+      # Local only: every visitor to the Airflow UI is an admin, so there is no generated password
+      # to find in the logs. Never set this on anything reachable from a network.
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
+    ports:
+      - "8090:8080"
+    depends_on:
+      warehouse: { condition: service_healthy }
+      mongo: { condition: service_healthy }
+
 volumes:
   funded-mongo:
+  funded-warehouse:

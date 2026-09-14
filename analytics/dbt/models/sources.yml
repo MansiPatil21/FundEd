@@ -1,0 +1,26 @@
+version: 2
+
+sources:
+  - name: raw
+    description: Loaded by the funded_elt Python package. Rates upsert on their natural key; app collections are full snapshots.
+    schema: raw
+    tables:
+      - name: fx_rates
+        description: ECB reference rates from Frankfurter, one row per pair per publication day.
+        config:
+          loaded_at_field: loaded_at
+          freshness:
+            # The ECB skips weekends and holidays, so a two-day gap is normal and four is not.
+            warn_after: {count: 3, period: day}
+            error_after: {count: 5, period: day}
+      - name: app_users
+        description: FundEd accounts, without email, name, password hash or permit details.
+        config:
+          loaded_at_field: extracted_at
+          freshness:
+            warn_after: {count: 2, period: day}
+            error_after: {count: 4, period: day}
+      - name: app_shifts
+      - name: app_obligations
+      - name: app_deadlines
+      - name: app_fx_alerts

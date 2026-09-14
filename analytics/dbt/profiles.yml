@@ -1,0 +1,14 @@
+# The same WAREHOUSE_* variables the Python loader reads, so extract-load and transform can never
+# point at different databases. Defaults match the `analytics` Docker Compose profile.
+funded_analytics:
+  target: warehouse
+  outputs:
+    warehouse:
+      type: postgres
+      host: "{{ env_var('WAREHOUSE_HOST', 'localhost') }}"
+      port: "{{ env_var('WAREHOUSE_PORT', '5433') | as_number }}"
+      user: "{{ env_var('WAREHOUSE_USER', 'funded') }}"
+      password: "{{ env_var('WAREHOUSE_PASSWORD', 'funded') }}"
+      dbname: "{{ env_var('WAREHOUSE_DB', 'warehouse') }}"
+      schema: analytics
+      threads: 4

@@ -1,0 +1,69 @@
+version: 2
+
+models:
+  - name: stg_fx_rates
+    description: One exchange rate per currency pair per ECB publication day.
+    columns:
+      - name: currency_pair
+        data_tests: [not_null]
+      - name: rate
+        data_tests: [not_null]
+
+  - name: stg_users
+    columns:
+      - name: user_id
+        data_tests: [unique, not_null]
+      - name: home_currency
+        data_tests: [not_null]
+
+  - name: stg_shifts
+    columns:
+      - name: shift_id
+        data_tests: [unique, not_null]
+      - name: user_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_users')
+                field: user_id
+
+  - name: stg_obligations
+    columns:
+      - name: obligation_id
+        data_tests: [unique, not_null]
+      - name: amount_minor
+        data_tests: [not_null]
+      - name: user_id
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('stg_users')
+                field: user_id
+
+  - name: stg_deadlines
+    columns:
+      - name: deadline_id
+        data_tests: [unique, not_null]
+      - name: kind
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [TUITION, GIC_RELEASE, PERMIT_EXPIRY, TAX_FILING, OTHER]
+
+  - name: stg_fx_alerts
+    columns:
+      - name: alert_id
+        data_tests: [unique, not_null]
+      - name: user_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_users')
+                field: user_id
+      - name: direction
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [AT_OR_ABOVE, AT_OR_BELOW]
