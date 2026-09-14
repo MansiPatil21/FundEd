@@ -3,21 +3,24 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
-import { Bell, BriefcaseBusiness, ChartPie, LogOut, Send, UserRound } from 'lucide-react'
-import { signOut, type Profile } from '@/lib/session'
+import { BriefcaseBusiness, ChartPie, LogOut, Send, TrendingUp, UserRound } from 'lucide-react'
+import { chosenName, signOut, type Profile } from '@/lib/session'
+import { NotificationBell } from './NotificationBell'
 import { Logo } from './ui'
 
 const NAV = [
   { href: '/dashboard', label: 'Dashboard', icon: ChartPie },
   { href: '/dashboard#shifts', label: 'Shifts', icon: BriefcaseBusiness },
   { href: '/dashboard#plan', label: 'Plan transfers', icon: Send },
-  { href: '/dashboard#alerts', label: 'Rate alerts', icon: Bell },
+  // Not a bell: the bell in the header is notifications, and two bells meant two different things.
+  { href: '/dashboard#alerts', label: 'Rate alerts', icon: TrendingUp },
   { href: '/profile', label: 'Profile', icon: UserRound },
 ] as const
 
 export function AppShell({ profile, children }: { profile: Profile; children: ReactNode }) {
   const pathname = usePathname()
-  const initials = profile.displayName
+  const name = chosenName(profile) || profile.email
+  const initials = name
     .split(/\s+/)
     .filter(Boolean)
     .map((part) => part[0])
@@ -32,15 +35,16 @@ export function AppShell({ profile, children }: { profile: Profile; children: Re
           <Logo />
         </Link>
         <div className="flex items-center gap-2">
+          <NotificationBell profile={profile} />
           <Link
             href="/profile"
             data-testid="profile-chip"
-            className="flex items-center gap-3 rounded-full bg-white py-1.5 pl-1.5 pr-1.5 shadow-sm ring-1 ring-black/5 transition hover:ring-black/15 sm:pr-4"
+            className="flex min-w-0 items-center gap-3 rounded-full bg-white py-1.5 pl-1.5 pr-1.5 shadow-sm ring-1 ring-black/5 transition hover:ring-black/15 sm:pr-4"
           >
-            <span className="grid size-9 place-items-center rounded-full bg-sage-gradient text-xs font-semibold text-white">
+            <span className="grid size-9 shrink-0 place-items-center rounded-full bg-sage-gradient text-xs font-semibold text-white">
               {initials || '?'}
             </span>
-            <span className="hidden text-sm font-medium text-ink sm:block">{profile.displayName}</span>
+            <span className="hidden max-w-48 truncate text-sm font-medium text-ink sm:block">{name}</span>
           </Link>
           <button
             data-testid="sign-out"

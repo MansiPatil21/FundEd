@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, type FormEvent } from 'react'
-import { Bell, TrendingDown, TrendingUp } from 'lucide-react'
+import { Bell, Trash2, TrendingDown, TrendingUp } from 'lucide-react'
 import { api, ApiError, UnauthorizedError, signOut } from '@/lib/session'
 import { formatTime } from '@/lib/format'
 import { Amount, Badge, Button, Card, Field, IconCircle, Notice, Segmented, Spinner, TextInput, type SegmentOption } from '@/components/ui'
@@ -28,10 +28,19 @@ export function AlertPanel({
   const [direction, setDirection] = useState<Direction>('AT_OR_ABOVE')
   const [target, setTarget] = useState('')
   const [busy, setBusy] = useState(false)
+  const [removing, setRemoving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const targetRate = Number(target)
   const valid = target.trim() !== '' && Number.isFinite(targetRate) && targetRate > 0
+
+  const fail = (caught: unknown, fallback: string) => {
+    if (caught instanceof UnauthorizedError) {
+      signOut()
+      return
+    }
+    setError(caught instanceof ApiError ? caught.message : fallback)
+  }
 
   const add = async (event: FormEvent) => {
     event.preventDefault()
@@ -46,13 +55,22 @@ export function AlertPanel({
       setTarget('')
       onChanged()
     } catch (caught) {
-      if (caught instanceof UnauthorizedError) {
-        signOut()
-        return
-      }
-      setError(caught instanceof ApiError ? caught.message : 'Could not set the alert. Try again.')
+      fail(caught, 'Could not set the alert. Try again.')
     } finally {
       setBusy(false)
+    }
+  }
+
+  const remove = async (id: string) => {
+    setRemoving(id)
+    setError(null)
+    try {
+      await api(`/api/fx/alerts/${id}`, { method: 'DELETE' })
+      onChanged()
+    } catch (caught) {
+      fail(caught, 'Could not delete the alert. Try again.')
+    } finally {
+      setRemoving(null)
     }
   }
 
@@ -119,6 +137,17 @@ export function AlertPanel({
                   </p>
                 </div>
                 {alert.spent ? <Badge>Fired</Badge> : <Badge tone="success">Watching</Badge>}
+                <button
+                  type="button"
+                  data-testid="delete-alert"
+                  onClick={() => void remove(alert.id)}
+                  disabled={removing === alert.id}
+                  aria-label={`Delete the alert for ${alert.baseCurrency}/${alert.quoteCurrency} at ${alert.targetRate.toFixed(2)}`}
+                  title="Delete"
+                  className="grid size-8 shrink-0 place-items-center rounded-full text-black/30 transition hover:bg-red-50 hover:text-red-600 disabled:opacity-40"
+                >
+                  {removing === alert.id ? <Spinner className="size-4" /> : <Trash2 className="size-4" />}
+                </button>
               </li>
             ))}
           </ul>

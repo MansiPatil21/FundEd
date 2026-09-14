@@ -32,7 +32,7 @@ import {
   type ObligationDraft,
 } from '@/store/budgetWizard'
 import { useRequireProfile } from '@/lib/useProfile'
-import { api, ApiError, UnauthorizedError, signOut, type Profile } from '@/lib/session'
+import { api, ApiError, UnauthorizedError, chosenName, signOut, type Profile } from '@/lib/session'
 import { CADENCES, CURRENCIES, cadenceLabel, formatDate, formatMoney, localNoonIso, toDateInput } from '@/lib/format'
 import { MoneyInput } from '@/components/MoneyInput'
 import { Amount, Button, Card, ErrorScreen, Field, Logo, Notice, PageLoader, Select, Spinner, TextInput } from '@/components/ui'
@@ -67,7 +67,8 @@ function Setup({ profile }: { profile: Profile }) {
     hydrated.current = true
     dispatch(
       hydrate({
-        displayName: profile.displayName,
+        // Empty for a new account, so the name field asks rather than suggesting the email.
+        displayName: chosenName(profile),
         homeCurrency: profile.homeCurrency,
         institution: profile.permit?.institution ?? '',
         programEndsOn: toDateInput(profile.permit?.programEndsOn),
@@ -236,7 +237,7 @@ function ProfileStep() {
   return (
     <div className="grid gap-5 sm:grid-cols-2">
       <div className="sm:col-span-2">
-        <Field label="Full name" htmlFor="displayName">
+        <Field label="What should we call you?" htmlFor="displayName">
           <TextInput
             id="displayName"
             data-testid="display-name"

@@ -42,7 +42,9 @@ export function authRouter({ db, tokens, allowLocalSignIn }: AuthDeps): Router {
     const user = await db.user.upsert({
       where: { email },
       update: {},
-      create: { email, displayName: displayName ?? email.split('@')[0]!, homeCurrency },
+      // No name is invented from the email. An empty name makes setup ask for one, instead of
+      // greeting a student by the local part of their address.
+      create: { email, displayName: displayName ?? '', homeCurrency },
     })
 
     res.json({

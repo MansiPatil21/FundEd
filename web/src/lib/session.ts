@@ -94,6 +94,18 @@ function messageFrom(body: unknown, status: number): string {
     : `That request was not accepted (${status}).`
 }
 
+/**
+ * The name the student chose, or '' if they have not chosen one.
+ *
+ * Accounts created before setup asked for a name were given the local part of their email
+ * ("mansican908"), which is not a name anyone wants to be greeted by. Those are treated
+ * as unnamed so the dashboard asks.
+ */
+export function chosenName(profile: Pick<Profile, 'displayName' | 'email'>): string {
+  const name = profile.displayName.trim()
+  return name === '' || name === profile.email.split('@')[0] ? '' : name
+}
+
 export function signOut(): void {
   clearToken()
   // A full navigation rather than router.push, so the Apollo cache and all in-memory state

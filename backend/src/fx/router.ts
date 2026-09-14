@@ -12,6 +12,8 @@ const newAlertSchema = z.object({
   direction: z.enum(['AT_OR_ABOVE', 'AT_OR_BELOW']),
 })
 
+const OBJECT_ID = /^[a-f\d]{24}$/i
+
 /** Authenticated routes: a student's own alerts. */
 export function fxRouter(db: PrismaClient, fx: FxService): Router {
   const router = Router()
@@ -28,6 +30,20 @@ export function fxRouter(db: PrismaClient, fx: FxService): Router {
     res.json({
       alerts: await db.fxAlert.findMany({ where: { userId: user.sub }, orderBy: { createdAt: 'desc' } }),
     })
+  })
+
+  router.delete('/alerts/:id', async (req, res) => {
+    const user = currentUser(req)
+    const id = req.params.id!
+    // A malformed id would make Prisma throw a 500. It names no alert, so it is a 404.
+    if (!OBJECT_ID.test(id)) {
+      res.status(404).json({ error: 'not_found' })
+      return
+    }
+    // The owner is part of the match, so another student's alert id is indistinguishable
+    // from one that never existed, rather than a 403 that confirms it does.
+    const removed = await db.fxAlert.deleteMany({ where: { id, userId: user.sub } })
+    res.status(removed.count > 0 ? 204 : 404).end()
   })
 
   router.get('/rate/:base/:quote', async (req, res) => {

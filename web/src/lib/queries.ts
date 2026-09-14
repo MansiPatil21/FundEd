@@ -42,6 +42,7 @@ export const DASHBOARD = gql`
         targetRate
         direction
         spent
+        triggeredAt
       }
       rate {
         pair

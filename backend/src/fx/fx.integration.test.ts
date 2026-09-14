@@ -255,3 +255,58 @@ describe('concurrent repeats', () => {
     expect(results.every((fired) => Array.isArray(fired))).toBe(true)
   })
 })
+
+describe('deleting an alert', () => {
+  const createAlert = async (token: string) => {
+    const response = await request(app)
+      .post('/api/fx/alerts')
+      .set('authorization', `Bearer ${token}`)
+      .send({ baseCurrency: 'CAD', quoteCurrency: 'INR', targetRate: 63, direction: 'AT_OR_ABOVE' })
+    expect(response.status).toBe(201)
+    return response.body.id as string
+  }
+
+  it("removes the owner's alert so it can no longer fire", async () => {
+    const token = await signIn()
+    const id = await createAlert(token)
+
+    const deleted = await request(app).delete(`/api/fx/alerts/${id}`).set('authorization', `Bearer ${token}`)
+    expect(deleted.status).toBe(204)
+
+    const listed = await request(app).get('/api/fx/alerts').set('authorization', `Bearer ${token}`)
+    expect(listed.body.alerts).toEqual([])
+
+    await push(64)
+    expect(notified).toHaveLength(0)
+  })
+
+  it("cannot delete another student's alert, and does not reveal that it exists", async () => {
+    const owner = await signIn('owner@example.com')
+    const intruder = await signIn('intruder@example.com')
+    const id = await createAlert(owner)
+
+    const attempt = await request(app).delete(`/api/fx/alerts/${id}`).set('authorization', `Bearer ${intruder}`)
+
+    expect(attempt.status).toBe(404)
+    expect(await db.fxAlert.count({ where: { id } })).toBe(1)
+  })
+
+  it('answers 404 for an alert that does not exist or an id that is malformed', async () => {
+    const token = await signIn()
+
+    const missing = await request(app).delete('/api/fx/alerts/0123456789abcdef01234567').set('authorization', `Bearer ${token}`)
+    const malformed = await request(app).delete('/api/fx/alerts/not-an-id').set('authorization', `Bearer ${token}`)
+
+    expect(missing.status).toBe(404)
+    expect(malformed.status).toBe(404)
+  })
+
+  it('requires a session', async () => {
+    const id = await createAlert(await signIn())
+
+    const anonymous = await request(app).delete(`/api/fx/alerts/${id}`)
+
+    expect(anonymous.status).toBe(401)
+    expect(await db.fxAlert.count({ where: { id } })).toBe(1)
+  })
+})

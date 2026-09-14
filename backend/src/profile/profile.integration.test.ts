@@ -56,7 +56,7 @@ describe('the profile endpoint', () => {
   it('starts a new account as not set up, named from its email', async () => {
     const response = await me(await signIn())
     expect(response.status).toBe(200)
-    expect(response.body).toMatchObject({ displayName: 'profile', onboarded: false, permit: null })
+    expect(response.body).toMatchObject({ displayName: '', onboarded: false, permit: null })
   })
 
   it('saves the profile one section at a time', async () => {
@@ -109,7 +109,7 @@ describe('the profile endpoint', () => {
     const mine = await signIn('mine@example.com')
     const theirs = await signIn('theirs@example.com')
     await patch(mine, { displayName: 'Mine Only' })
-    expect((await me(theirs)).body.displayName).toBe('theirs')
+    expect((await me(theirs)).body.displayName).toBe('')
   })
 })
 

@@ -105,7 +105,7 @@ function ProfileForm({ profile, onSaved }: { profile: Profile; onSaved: (profile
           {initials || '?'}
         </span>
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-4xl font-medium tracking-display sm:text-5xl">{profile.displayName}</h1>
+          <h1 className="truncate text-4xl font-medium tracking-display sm:text-5xl">{profile.displayName || profile.email}</h1>
           <p className="mt-1 text-sm text-white/75">{profile.email}</p>
         </div>
         {profile.permit && (

@@ -27,6 +27,7 @@ export interface DashboardAlert {
   targetRate: number
   direction: string
   spent: boolean
+  triggeredAt: string | null
 }
 
 export interface DashboardRate {
