@@ -13,18 +13,34 @@ export function parsePairs(value: string): Array<{ base: string; quote: string }
   return pairs
 }
 
+export interface RedisConnectionOptions {
+  host: string
+  port: number
+  db: number
+  username?: string
+  password?: string
+  tls?: Record<string, never>
+  maxRetriesPerRequest: null
+}
+
 /**
- * A redis:// URL as the connection options BullMQ hands to ioredis.
+ * A redis:// or rediss:// URL as the connection options BullMQ hands to ioredis.
  *
- * maxRetriesPerRequest is null because BullMQ's workers hold blocking connections, and
- * ioredis's default retry limit would abort them during a brief Redis restart.
+ * ioredis takes an options object here, not the URL, so everything the URL carries must be
+ * copied across by hand. Hosted Redis (Upstash, for one) issues rediss://user:password@host
+ * URLs: dropping the credentials or the TLS scheme connects to nothing, and the failure only
+ * shows up once deployed. maxRetriesPerRequest is null because BullMQ's workers hold blocking
+ * connections, and ioredis's default retry limit would abort them during a brief Redis restart.
  */
-export function redisConnection(url: string): { host: string; port: number; db: number; maxRetriesPerRequest: null } {
+export function redisConnection(url: string): RedisConnectionOptions {
   const parsed = new URL(url)
   return {
     host: parsed.hostname,
     port: Number(parsed.port || 6379),
     db: Number(parsed.pathname.replace('/', '') || 0),
+    ...(parsed.username ? { username: decodeURIComponent(parsed.username) } : {}),
+    ...(parsed.password ? { password: decodeURIComponent(parsed.password) } : {}),
+    ...(parsed.protocol === 'rediss:' ? { tls: {} } : {}),
     maxRetriesPerRequest: null,
   }
 }
