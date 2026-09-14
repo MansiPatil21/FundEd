@@ -80,12 +80,15 @@ Status is derived on read from the due date and completion time (state machine i
 
 | Route | Purpose |
 | --- | --- |
-| `POST /api/auth/local` | Development sign-in, refused in production |
+| `POST /api/auth/register` | Create an account with email and password; 409 if the email is taken |
+| `POST /api/auth/login` | Exchange email and password for a token; the same 401 for either being wrong, 429 after repeated failures |
+| `POST /api/auth/password` | Change the password after confirming the current one |
+| `POST /api/auth/local` | Development email-only sign-in used by the test suite, refused in production |
 | `GET, PATCH /api/me` | Profile, permit and budget; finishing setup |
 | `/api/shifts` | Create, list, delete; `GET /compliance`; `POST /compliance/would-breach` |
 | `/api/obligations` | Create, list, delete |
 | `/api/deadlines` | Create, list, mark done or reopen, delete |
-| `/api/fx/alerts`, `GET /api/fx/rate/:base/:quote` | Rate alerts and the latest rate |
+| `/api/fx/alerts`, `GET /api/fx/rate/:base/:quote` | Create, list and delete rate alerts; the latest rate |
 | `POST /api/plan`, `POST /api/plan/saving` | Transfer plan with baseline; uncertainty estimate |
 | `POST /api/compliance/usage`, `/would-breach` | Stateless calculators, no sign-in needed |
 | `POST /webhooks/fx/rates` | Rate provider push, HMAC-verified over the raw body |
@@ -100,7 +103,14 @@ use GraphQL and writes use REST, so status codes keep their meaning
 
 ## 6. Cross-cutting concerns
 
-- **Authentication.** Short-lived JWTs with the algorithm pinned, so an unsigned `alg: none` token
+- **Authentication.** Email and password accounts. Passwords are hashed with scrypt, salted, with
+  the cost parameters stored beside each hash so they can be raised later, and compared in constant
+  time. A sign-in for an unknown email still runs a full verification against a throwaway hash, so
+  response time does not reveal which emails are registered, and a wrong password and an unknown
+  email return the same 401. Five failed sign-ins for one email, or thirty from one address, within
+  fifteen minutes return 429 with `Retry-After`. Passwords follow NIST SP 800-63B: at least eight
+  characters and a blocklist of the most common, with no composition rules.
+  Sessions are short-lived JWTs with the algorithm pinned, so an unsigned `alg: none` token
   is rejected. 401 means not signed in; 403 is reserved for signed in but not allowed. Every query
   is scoped by user, including deletes, so a guessed id never touches another student's data, and
   a malformed id is a 404 rather than a Prisma exception.
@@ -143,8 +153,10 @@ image build.
 
 - Plans assume one flat exchange rate; the uncertainty estimate is an upper bound, not a forecast.
 - Rates are the ECB's daily reference rates, not live market quotes.
-- Sign-in is email-only for development. Google sign-in is not built, and tokens cannot be revoked
-  before they expire.
+- There is no password reset, because the app sends no email. Google sign-in is not built.
+- Tokens cannot be revoked before they expire, so changing a password does not end other sessions.
+- Sign-in attempt limits are held in memory, so they apply per API instance. Running a second
+  instance would need them moved to Redis.
 - Deadlines are raised in the app; there are no email or push reminders.
 - Plans are computed on request and not stored; the `TransferPlan` model is defined but unused.
 - Not deployed to a public cloud.

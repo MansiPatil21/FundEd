@@ -7,6 +7,7 @@ import { api, ApiError, UnauthorizedError, signOut, type Profile } from '@/lib/s
 import { CURRENCIES, formatDate, formatMoney, localNoonIso, toDateInput } from '@/lib/format'
 import { isCalendarDate } from '@/store/budgetWizard'
 import { AppShell } from '@/components/AppShell'
+import { ChangePasswordCard } from '@/components/ChangePasswordCard'
 import { MoneyInput } from '@/components/MoneyInput'
 import { Amount, Button, Card, ErrorScreen, Field, Notice, PageLoader, Select, Spinner, TextInput } from '@/components/ui'
 
@@ -19,6 +20,10 @@ export default function ProfilePage() {
   return (
     <AppShell profile={state.profile}>
       <ProfileForm profile={state.profile} onSaved={setProfile} />
+      {/* Outside the profile form: forms cannot nest, and the two save independently. */}
+      <div className="mx-auto mt-6 max-w-4xl">
+        <ChangePasswordCard email={state.profile.email} />
+      </div>
     </AppShell>
   )
 }

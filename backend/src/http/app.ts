@@ -59,6 +59,12 @@ export async function createApp({
 }: Dependencies): Promise<Express> {
   const app = express()
 
+  // Behind Render's proxy every request arrives from the proxy's address, so sign-in attempt
+  // limits would count all students as one. Trusting exactly one hop reads the real client
+  // from X-Forwarded-For. Only in production: with no proxy in front, trusting the header
+  // would let anyone set their own address and dodge the limit.
+  if (env.NODE_ENV === 'production') app.set('trust proxy', 1)
+
   // The web app is served from a different origin than the API, so without this every
   // browser request is blocked at the preflight. Only Socket.IO had CORS configured,
   // which is why the API looked healthy to curl while sign-in failed in the browser.

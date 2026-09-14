@@ -25,6 +25,10 @@ model User {
   // is a confusing way to discover the rule. Uniqueness of a Google account is
   // enforced when one is linked, not by the index. See ADR 0003.
   googleId       String?
+  // scrypt$N$r$p$salt$key, see src/auth/passwords.ts. Optional because accounts created
+  // by the development-only email sign-in have none, and those cannot sign in with a
+  // password until one is set.
+  passwordHash   String?
   homeCurrency   String   // ISO 4217, e.g. INR
   localCurrency  String   @default("CAD")
   createdAt      DateTime @default(now())

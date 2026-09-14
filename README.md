@@ -55,6 +55,7 @@ cd web && npm ci && npm run dev                               # http://localhost
 
 ## Status and limits
 
-Built and tested locally; not deployed to a public cloud. Sign-in is email-only for development.
+Built and tested locally; not deployed to a public cloud. Accounts use email and password, with
+scrypt hashing and limits on repeated failed sign-ins.
 Plans assume one flat exchange rate, and exchange rates are the ECB's daily reference rates. See
 the technical design for the full list.

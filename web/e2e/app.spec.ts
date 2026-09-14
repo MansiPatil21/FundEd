@@ -30,6 +30,46 @@ test.describe('getting in', () => {
     await page.getByTestId('sign-in-submit').click()
     await expect(page.getByText('Enter a valid email address')).toBeVisible()
   })
+
+  test('the sign-in form asks for a password', async ({ page }) => {
+    await page.goto('/login')
+    await page.getByTestId('email').fill('mansi@example.com')
+    await page.getByTestId('sign-in-submit').click()
+    await expect(page.getByText('Enter your password')).toBeVisible()
+  })
+
+  test('a new visitor can go from sign-in to creating an account and back', async ({ page }) => {
+    await page.goto('/login')
+    await page.getByTestId('to-signup').click()
+    await expect(page).toHaveURL(/\/signup$/)
+    await expect(page.getByTestId('signup-password')).toBeVisible()
+    await page.getByTestId('to-login').click()
+    await expect(page).toHaveURL(/\/login$/)
+  })
+
+  test('sign-up explains a password that breaks the rules, before anything is sent', async ({ page }) => {
+    await page.goto('/signup')
+    await page.getByTestId('signup-name').fill('Mansi')
+    await page.getByTestId('signup-email').fill('mansi@example.com')
+    await page.getByTestId('signup-password').fill('short')
+    await page.getByTestId('signup-submit').click()
+    await expect(page.getByText('Use at least 8 characters')).toBeVisible()
+
+    await page.getByTestId('signup-password').fill('password123')
+    await expect(page.getByText('That password is too common. Choose another')).toBeVisible()
+    await expect(page).toHaveURL(/\/signup$/)
+  })
+
+  test('the password can be shown and hidden', async ({ page }) => {
+    await page.goto('/login')
+    const field = page.getByTestId('password')
+    await field.fill('correct horse battery')
+    await expect(field).toHaveAttribute('type', 'password')
+    await page.getByRole('button', { name: 'Show password' }).click()
+    await expect(field).toHaveAttribute('type', 'text')
+    await page.getByRole('button', { name: 'Hide password' }).click()
+    await expect(field).toHaveAttribute('type', 'password')
+  })
 })
 
 test.describe('dark mode', () => {
