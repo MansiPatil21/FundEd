@@ -1,0 +1,41 @@
+# The whole product on Kubernetes: the same five services as `docker compose --profile full`,
+# with Nginx as the single entry point. Overlays pick where images come from and how Nginx is
+# exposed: overlays/kind for CI and local clusters, overlays/aks for Azure Kubernetes Service.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: funded
+
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: funded
+
+resources:
+  - namespace.yaml
+  - mongo.yaml
+  - redis.yaml
+  - optimizer.yaml
+  - api.yaml
+  - web.yaml
+  - nginx.yaml
+  - network-policies.yaml
+
+# Generated with a content hash in the name, so changing a value rolls the pods that use it.
+configMapGenerator:
+  - name: funded-config
+    literals:
+      - NODE_ENV=production
+      - PORT=4000
+      - DATABASE_URL=mongodb://mongo:27017/funded?replicaSet=rs0&directConnection=true
+      - REDIS_URL=redis://redis:6379
+      - OPTIMIZER_URL=http://optimizer:5000
+      - CORS_ORIGIN=http://localhost:8080
+      - FX_POLL_ENABLED=false
+      - FX_PAIRS=CAD:INR
+      - ALLOW_LOCAL_SIGN_IN=false
+  - name: nginx-conf
+    files:
+      - default.conf=nginx.conf
+
+# JWT_SECRET, FX_WEBHOOK_SECRET and OPTIMIZER_API_KEY come from the funded-secrets Secret, which
+# scripts/create-secrets.sh creates in the cluster. Secret values are never committed.

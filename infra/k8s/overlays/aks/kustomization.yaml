@@ -1,0 +1,17 @@
+# For Azure Kubernetes Service. Nginx gets a public IP from an Azure Standard Load Balancer.
+# Images are pinned per release by deploy-aks.sh, which writes a small overlay on top of this one
+# naming the Azure Container Registry and the commit tag.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+patches:
+  - target:
+      kind: Service
+      name: nginx
+    patch: |-
+      - op: add
+        path: /spec/type
+        value: LoadBalancer

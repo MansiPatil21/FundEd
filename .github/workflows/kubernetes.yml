@@ -1,0 +1,109 @@
+name: Kubernetes
+
+# Deploys the whole product to a throwaway kind cluster on every change and proves it works:
+# manifests validated against the Kubernetes schemas, every workload rolled out, an end-to-end
+# smoke test through Nginx, NetworkPolicies enforced, and the autoscaler reading CPU metrics.
+# The same manifests deploy to AKS with infra/k8s/deploy-aks.sh.
+on:
+  push:
+    branches: [main]
+    paths:
+      - backend/**
+      - web/**
+      - optimizer/**
+      - infra/k8s/**
+      - .github/workflows/kubernetes.yml
+  pull_request:
+    paths:
+      - backend/**
+      - web/**
+      - optimizer/**
+      - infra/k8s/**
+      - .github/workflows/kubernetes.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kubernetes-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  KIND_VERSION: v0.29.0
+  KUBECONFORM_VERSION: v0.6.7
+  METRICS_SERVER_VERSION: v0.7.2
+
+jobs:
+  kind:
+    name: Deploy to kind and verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate manifests against the Kubernetes schemas
+        run: |
+          curl -sSL "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz" | tar xz kubeconform
+          for overlay in kind aks; do
+            kubectl kustomize "infra/k8s/overlays/$overlay" | ./kubeconform -strict -summary -kubernetes-version 1.33.0 -
+          done
+
+      - name: Build images
+        run: |
+          docker build -t funded-api:ci --target runtime backend
+          docker build -t funded-optimizer:ci optimizer
+          docker build -t funded-web:ci web
+
+      - name: Create the kind cluster
+        run: |
+          curl -sSLo kind "https://kind.sigs.k8s.io/dl/${KIND_VERSION}/kind-linux-amd64"
+          chmod +x kind && sudo mv kind /usr/local/bin/kind
+          kind create cluster --name funded --wait 120s
+          kind load docker-image funded-api:ci funded-optimizer:ci funded-web:ci --name funded
+
+      - name: Install metrics-server for the autoscaler
+        run: |
+          kubectl apply -f "https://github.com/kubernetes-sigs/metrics-server/releases/download/${METRICS_SERVER_VERSION}/components.yaml"
+          # kind's kubelets use self-signed serving certificates.
+          kubectl -n kube-system patch deployment metrics-server --type json \
+            -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+
+      - name: Deploy
+        run: |
+          infra/k8s/scripts/create-secrets.sh
+          kubectl apply -k infra/k8s/overlays/kind
+          ROLLOUT_TIMEOUT=420s infra/k8s/scripts/wait-ready.sh
+
+      - name: Smoke test through Nginx
+        run: |
+          kubectl -n funded port-forward service/nginx 8080:80 >/tmp/port-forward.log 2>&1 &
+          infra/k8s/scripts/smoke-test.sh http://localhost:8080
+
+      - name: Verify NetworkPolicies are enforced
+        run: infra/k8s/scripts/verify-network-policy.sh
+
+      - name: Verify the autoscaler reads CPU metrics
+        run: |
+          for attempt in $(seq 1 24); do
+            current="$(kubectl -n funded get hpa optimizer -o jsonpath='{.status.currentMetrics[0].resource.current.averageUtilization}')"
+            if [ -n "$current" ]; then
+              echo "optimizer CPU at ${current}% of request, target 70%"
+              exit 0
+            fi
+            sleep 5
+          done
+          kubectl -n funded describe hpa optimizer
+          exit 1
+
+      - name: Diagnostics
+        if: failure()
+        run: |
+          kubectl get nodes -o wide || true
+          kubectl -n funded get all,networkpolicy,pvc -o wide || true
+          kubectl -n funded get events --sort-by=.lastTimestamp | tail -n 40 || true
+          for workload in statefulset/mongo deployment/redis deployment/optimizer deployment/api deployment/web deployment/nginx; do
+            echo "::group::$workload logs"
+            kubectl -n funded logs "$workload" --all-containers --tail=100 || true
+            echo "::endgroup::"
+          done

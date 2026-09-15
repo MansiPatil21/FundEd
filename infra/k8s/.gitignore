@@ -1,0 +1,2 @@
+# Per-release overlays written by deploy-aks.sh.
+.release/

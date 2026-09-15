@@ -1,0 +1,80 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: optimizer
+spec:
+  selector:
+    app.kubernetes.io/name: optimizer
+  ports:
+    - name: http
+      port: 5000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: optimizer
+spec:
+  # No replicas field: the HorizontalPodAutoscaler owns the count, and a fixed value here would
+  # reset it on every apply.
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: optimizer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: optimizer
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: optimizer
+          image: funded-optimizer
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: PORT
+              value: "5000"
+            # The API sends this key with every solve and the optimizer rejects requests without it.
+            - name: OPTIMIZER_API_KEY
+              valueFrom:
+                secretKeyRef: { name: funded-secrets, key: OPTIMIZER_API_KEY }
+          ports:
+            - name: http
+              containerPort: 5000
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 200m, memory: 256Mi }
+            limits: { cpu: "1", memory: 1Gi }
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            periodSeconds: 15
+            failureThreshold: 4
+---
+# Solves are CPU-bound, so CPU is the signal: add replicas while the average stays above 70% of
+# the request.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: optimizer
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: optimizer
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70

@@ -1,0 +1,15 @@
+# For kind clusters in CI and on a laptop. Images are built locally and loaded into the cluster
+# with `kind load docker-image`, so nothing is pulled from a registry.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+images:
+  - name: funded-api
+    newTag: ci
+  - name: funded-optimizer
+    newTag: ci
+  - name: funded-web
+    newTag: ci
