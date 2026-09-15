@@ -1,0 +1,90 @@
+// Jenkins pipeline for the optimizer: install, unit tests, image build, and a smoke test that runs
+// the built container and checks the behaviour a client depends on.
+//
+// Runs on the local Jenkins in infra/jenkins (docker compose up), which has Python and the Docker CLI
+// and shares the funded-ci Docker network with the containers it starts.
+
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        timeout(time: 25, unit: 'MINUTES')
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+    }
+
+    environment {
+        IMAGE     = "funded-optimizer:jenkins-${env.BUILD_NUMBER}"
+        SMOKE     = "funded-optimizer-smoke-${env.BUILD_NUMBER}"
+        // A throwaway key for this build only, so the smoke test can prove the key guard is on.
+        SMOKE_KEY = "jenkins-smoke-${env.BUILD_NUMBER}-0123456789abcdef"
+    }
+
+    stages {
+        stage('Install') {
+            steps {
+                dir('optimizer') {
+                    sh '''
+                        python3 -m venv .venv
+                        .venv/bin/pip install --quiet --retries 10 --timeout 120 -r requirements-dev.txt
+                    '''
+                }
+            }
+        }
+
+        stage('Unit tests') {
+            steps {
+                dir('optimizer') {
+                    sh '.venv/bin/python -m pytest -q --junitxml=reports/junit.xml'
+                }
+            }
+            post {
+                always {
+                    junit 'optimizer/reports/junit.xml'
+                }
+            }
+        }
+
+        stage('Build image') {
+            steps {
+                sh 'docker build --tag "$IMAGE" optimizer'
+            }
+        }
+
+        stage('Smoke test') {
+            steps {
+                sh '''
+                    docker run -d --name "$SMOKE" --network funded-ci \
+                        -e PORT=8000 -e OPTIMIZER_API_KEY="$SMOKE_KEY" "$IMAGE"
+
+                    ready=false
+                    for attempt in $(seq 1 30); do
+                        if curl -fs "http://$SMOKE:8000/health" > /dev/null; then ready=true; break; fi
+                        sleep 2
+                    done
+                    [ "$ready" = true ] || { docker logs "$SMOKE"; echo "container never became healthy"; exit 1; }
+                    echo "GET /health -> 200"
+
+                    body='{"periods":[{"on":"2027-01-01","rate":60.0},{"on":"2027-01-02","rate":62.0}],"obligations":[{"label":"rent","due_on":"2027-01-02","amount_minor":620000}],"fees":{"fixed_minor":0,"variable_bps":0},"opening_balance_minor":1000000}'
+
+                    status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "http://$SMOKE:8000/plan" \
+                        -H 'content-type: application/json' -d "$body")
+                    echo "POST /plan without key -> $status"
+                    [ "$status" = 401 ]
+
+                    curl -fs -X POST "http://$SMOKE:8000/plan" -H 'content-type: application/json' \
+                        -H "x-api-key: $SMOKE_KEY" -d "$body" | grep -q OPTIMAL
+                    echo "POST /plan with key -> OPTIMAL"
+                '''
+            }
+        }
+    }
+
+    post {
+        always {
+            // Never leave a smoke container or a per-build image behind on the shared Docker daemon.
+            sh 'docker rm -f "$SMOKE" > /dev/null 2>&1 || true; docker rmi "$IMAGE" > /dev/null 2>&1 || true'
+        }
+    }
+}

@@ -1,0 +1,44 @@
+# Jenkins Configuration as Code: the whole controller, including its one job, is defined here.
+jenkins:
+  systemMessage: "FundEd CI (local). Configured by infra/jenkins/casc.yaml."
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+security:
+  globalJobDslSecurityConfiguration:
+    # The job below is defined in this reviewed file, not submitted by users, so it does not need
+    # per-script approval.
+    useScriptSecurity: false
+
+unclassified:
+  location:
+    url: "http://localhost:8081/"
+
+jobs:
+  - script: >
+      pipelineJob('funded-optimizer') {
+        description('Optimizer: install, unit tests, image build and smoke test. Pipeline in optimizer/Jenkinsfile.')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote { url('${JENKINS_REPO_URL}') }
+                branch('*/${JENKINS_REPO_BRANCH}')
+              }
+            }
+            scriptPath('optimizer/Jenkinsfile')
+            lightweight(false)
+          }
+        }
+        triggers {
+          scm('H/5 * * * *')
+        }
+      }

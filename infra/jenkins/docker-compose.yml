@@ -1,0 +1,36 @@
+# Local Jenkins for FundEd.
+#
+#   docker compose -f infra/jenkins/docker-compose.yml up -d --build
+#   open http://localhost:8081   (admin / JENKINS_ADMIN_PASSWORD, "admin-local-only" by default)
+#
+# Local use only: the container runs as root with the host's Docker socket so pipeline stages can
+# build and run images, which is equivalent to root on the host. Never expose this to a network.
+
+services:
+  jenkins:
+    build: .
+    container_name: funded-jenkins
+    user: root
+    ports:
+      - "8081:8080"
+    environment:
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:-admin-local-only}
+      JENKINS_REPO_URL: ${JENKINS_REPO_URL:-https://github.com/MansiPatil21/FundEd.git}
+      JENKINS_REPO_BRANCH: ${JENKINS_REPO_BRANCH:-main}
+      JAVA_OPTS: >-
+        -Djenkins.install.runSetupWizard=false
+        -Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=${JENKINS_ALLOW_LOCAL_CHECKOUT:-false}
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      # Optional: mount a local clone to build commits before they are pushed.
+      - ${JENKINS_LOCAL_REPO:-.}:/repo:ro
+    networks:
+      - funded-ci
+
+volumes:
+  jenkins-home:
+
+networks:
+  funded-ci:
+    name: funded-ci
