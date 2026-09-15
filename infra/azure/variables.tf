@@ -57,3 +57,9 @@ variable "github_subject_prefix" {
   type        = string
   default     = "repo:MansiPatil21@86612618/FundEd@1368272004"
 }
+
+variable "key_vault_admin_object_id" {
+  description = "Entra object id of the person who runs Terraform locally and manages Key Vault secrets. Fixed rather than read from the current caller, so a pipeline identity running plan does not appear to replace it."
+  type        = string
+  default     = "673910e6-612d-4e36-a984-5f6cbd41dd48"
+}

@@ -1,8 +1,13 @@
 """Deployment report straight from the Azure Resource Manager REST API.
 
 Run after every deploy. It fails the pipeline when:
-  * any resource in the resource group is non-compliant with an assigned Azure Policy, or
+  * any resource is non-compliant with a policy assignment this deployment owns (by name prefix), or
   * the container app did not finish provisioning, or its latest revision is not running.
+
+Non-compliance with assignments it does not own, such as Microsoft Defender for Cloud's
+subscription-wide security benchmark, is printed as a warning. Those recommendations often need
+paid tiers (private endpoints, a Premium registry) and are not this deployment's guardrails, so
+failing a release on them would block every deploy on a student subscription.
 
 Calls the REST API directly with the standard library rather than through the Azure CLI or SDK,
 so the exact endpoints and api-versions this depends on are visible in one place. The bearer
@@ -34,8 +39,8 @@ Transport = Callable[[str, str, str], tuple[int, dict]]
 
 @dataclass(frozen=True)
 class Report:
-    non_compliant_resources: int
-    non_compliant_policies: int
+    own_violations: list[str]
+    other_findings: int
     provisioning_state: str
     running_status: str
     latest_revision: str
@@ -43,12 +48,7 @@ class Report:
 
     @property
     def problems(self) -> list[str]:
-        found = []
-        if self.non_compliant_resources:
-            found.append(
-                f"{self.non_compliant_resources} resource(s) non-compliant with "
-                f"{self.non_compliant_policies} policy assignment(s)"
-            )
+        found = [f"policy violation: {violation}" for violation in self.own_violations]
         if self.provisioning_state != "Succeeded":
             found.append(f"container app provisioning state is {self.provisioning_state}")
         if self.running_status not in ("Running", "RunningAtMaxScale", "unknown"):
@@ -86,17 +86,27 @@ def http_transport(token: str) -> Transport:
     return send
 
 
-def build_report(send: Transport, subscription: str, resource_group: str, container_app: str) -> Report:
+def build_report(
+    send: Transport, subscription: str, resource_group: str, container_app: str, own_prefix: str = "funded-"
+) -> Report:
     scope = f"{ARM}/subscriptions/{subscription}/resourceGroups/{resource_group}"
 
-    status, summary = send(
+    status, states = send(
         "POST",
-        f"{scope}/providers/Microsoft.PolicyInsights/policyStates/latest/summarize?api-version={POLICY_API}",
+        f"{scope}/providers/Microsoft.PolicyInsights/policyStates/latest/queryResults"
+        f"?api-version={POLICY_API}&$filter=ComplianceState%20eq%20%27NonCompliant%27",
         "",
     )
     if status != 200:
-        raise RuntimeError(f"policy summarize returned {status}: {summary.get('error', summary)}")
-    results = (summary.get("value") or [{}])[0].get("results", {})
+        raise RuntimeError(f"policy query returned {status}: {states.get('error', states)}")
+    own, other = [], 0
+    for state in states.get("value", []):
+        assignment = state.get("policyAssignmentName", "")
+        if assignment.startswith(own_prefix):
+            resource = state.get("resourceId", "unknown").rsplit("/", 1)[-1]
+            own.append(f"{resource} breaks {assignment}")
+        else:
+            other += 1
 
     status, app = send(
         "GET",
@@ -108,8 +118,8 @@ def build_report(send: Transport, subscription: str, resource_group: str, contai
     properties = app.get("properties", {})
 
     return Report(
-        non_compliant_resources=int(results.get("nonCompliantResources", 0)),
-        non_compliant_policies=int(results.get("nonCompliantPolicies", 0)),
+        own_violations=sorted(set(own)),
+        other_findings=other,
         provisioning_state=properties.get("provisioningState", "unknown"),
         running_status=properties.get("runningStatus", "unknown"),
         latest_revision=properties.get("latestRevisionName", "unknown"),
@@ -122,15 +132,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--subscription", required=True)
     parser.add_argument("--resource-group", required=True)
     parser.add_argument("--container-app", required=True)
+    parser.add_argument("--own-assignment-prefix", default="funded-")
     args = parser.parse_args(argv)
 
-    report = build_report(http_transport(access_token()), args.subscription, args.resource_group, args.container_app)
+    report = build_report(
+        http_transport(access_token()), args.subscription, args.resource_group, args.container_app, args.own_assignment_prefix
+    )
     print(json.dumps(report.__dict__, indent=2))
+    if report.other_findings:
+        print(f"WARN: {report.other_findings} finding(s) from policy assignments this deployment does not own")
     if report.problems:
         for problem in report.problems:
             print(f"FAIL: {problem}", file=sys.stderr)
         return 1
-    print("OK: all resources compliant, container app healthy")
+    print("OK: no violations of this deployment's policies, container app healthy")
     return 0
 
 

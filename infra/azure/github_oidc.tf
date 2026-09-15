@@ -23,9 +23,10 @@ locals {
   subscription_scope          = "/subscriptions/${var.subscription_id}"
 }
 
-data "azurerm_storage_account" "state" {
-  name                = var.state_storage_account
-  resource_group_name = var.state_resource_group
+# The state account's id, built rather than looked up: the azurerm_storage_account data source also
+# reads the account's access keys, which the read-only plan identity must not be able to do.
+locals {
+  state_account_id = "/subscriptions/${var.subscription_id}/resourceGroups/${var.state_resource_group}/providers/Microsoft.Storage/storageAccounts/${var.state_storage_account}"
 }
 
 # ---- Image deployment ------------------------------------------------------------------------
@@ -117,9 +118,33 @@ resource "azurerm_role_assignment" "plan_kv_reader" {
 # Blob write on the state account only to take and release the state lease (lock). A plan never
 # writes state.
 resource "azurerm_role_assignment" "plan_state_lock" {
-  scope                = data.azurerm_storage_account.state.id
+  scope                = local.state_account_id
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = azurerm_user_assigned_identity.terraform_plan.principal_id
+}
+
+# Refreshing state calls two actions Reader does not include: listing the container app's secrets
+# and reading the Log Analytics workspace's shared key. A custom role grants exactly those two,
+# rather than widening the plan identity to Contributor.
+resource "azurerm_role_definition" "plan_refresh" {
+  name        = "FundEd Terraform plan refresh (${var.environment})"
+  scope       = azurerm_resource_group.main.id
+  description = "Read-only extras Terraform needs to refresh the FundEd Azure resources."
+
+  permissions {
+    actions = [
+      "Microsoft.App/containerApps/listSecrets/action",
+      "Microsoft.OperationalInsights/workspaces/sharedKeys/action",
+    ]
+  }
+
+  assignable_scopes = [azurerm_resource_group.main.id]
+}
+
+resource "azurerm_role_assignment" "plan_refresh" {
+  scope              = azurerm_resource_group.main.id
+  role_definition_id = azurerm_role_definition.plan_refresh.role_definition_resource_id
+  principal_id       = azurerm_user_assigned_identity.terraform_plan.principal_id
 }
 
 # ---- Terraform apply: write access, environment-gated ----------------------------------------
@@ -173,7 +198,7 @@ resource "azurerm_role_assignment" "apply_kv_officer" {
 }
 
 resource "azurerm_role_assignment" "apply_state" {
-  scope                = data.azurerm_storage_account.state.id
+  scope                = local.state_account_id
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = azurerm_user_assigned_identity.terraform_apply.principal_id
 }

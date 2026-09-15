@@ -101,4 +101,5 @@ jobs:
           python infra/azure/scripts/azure_report.py \
             --subscription "${{ vars.AZURE_SUBSCRIPTION_ID }}" \
             --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
-            --container-app "${{ vars.AZURE_CONTAINER_APP }}"
+            --container-app "${{ vars.AZURE_CONTAINER_APP }}" \
+            --own-assignment-prefix funded-

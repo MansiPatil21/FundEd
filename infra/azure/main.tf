@@ -79,7 +79,9 @@ resource "azurerm_key_vault" "main" {
 resource "azurerm_role_assignment" "deployer_kv_officer" {
   scope                = azurerm_key_vault.main.id
   role_definition_name = "Key Vault Secrets Officer"
-  principal_id         = data.azurerm_client_config.current.object_id
+  # A fixed person, not data.azurerm_client_config.current: in CI the caller is a pipeline identity,
+  # and every plan then showed this assignment being replaced.
+  principal_id = var.key_vault_admin_object_id
 }
 
 resource "azurerm_role_assignment" "app_kv_reader" {
@@ -126,6 +128,13 @@ resource "azurerm_container_app_environment" "main" {
   resource_group_name        = azurerm_resource_group.main.name
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
   tags                       = local.tags
+
+  # Declared because Azure creates the environment with it anyway. Leaving it out made every plan
+  # try to remove it.
+  workload_profile {
+    name                  = "Consumption"
+    workload_profile_type = "Consumption"
+  }
 }
 
 resource "azurerm_container_app" "optimizer" {
@@ -133,6 +142,7 @@ resource "azurerm_container_app" "optimizer" {
   container_app_environment_id = azurerm_container_app_environment.main.id
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Single"
+  workload_profile_name        = "Consumption"
   tags                         = local.tags
 
   identity {
@@ -153,7 +163,7 @@ resource "azurerm_container_app" "optimizer" {
   ingress {
     external_enabled = true
     target_port      = 8000
-    transport        = "auto"
+    transport        = "http"
 
     traffic_weight {
       percentage      = 100
@@ -165,6 +175,11 @@ resource "azurerm_container_app" "optimizer" {
     # Scale to zero between requests: the consumption plan's free grant covers idle time entirely.
     min_replicas = 0
     max_replicas = 1
+
+    http_scale_rule {
+      name                = "http-scaler"
+      concurrent_requests = "10"
+    }
 
     container {
       name   = "optimizer"
@@ -210,7 +225,16 @@ resource "azurerm_container_app" "optimizer" {
   lifecycle {
     # After the first apply the pipeline deploys new images. Without this, every terraform apply
     # would roll the app back to the tag Terraform knows about.
-    ignore_changes = [template[0].container[0].image]
+    # Also ignored: values Azure manages on this express environment and does not report back the way
+    # the provider expects, which otherwise appear as a change in every plan.
+    ignore_changes = [
+      template[0].container[0].image,
+      template[0].container[0].liveness_probe,
+      template[0].container[0].readiness_probe,
+      template[0].cooldown_period_in_seconds,
+      template[0].polling_interval_in_seconds,
+      ingress[0].traffic_weight,
+    ]
   }
 
   depends_on = [time_sleep.rbac_propagation]
