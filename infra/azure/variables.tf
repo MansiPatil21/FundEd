@@ -47,3 +47,13 @@ variable "state_storage_account" {
   description = "Name of the Terraform state storage account created by bootstrap.ps1."
   type        = string
 }
+
+variable "github_subject_prefix" {
+  description = <<-EOT
+    Start of the OIDC subject GitHub issues for this repository. This repository uses GitHub's
+    immutable-ID subject format (repo:OWNER@OWNER_ID/REPO@REPO_ID), which survives renames. Read it
+    from: gh api repos/OWNER/REPO/actions/oidc/customization/sub
+  EOT
+  type        = string
+  default     = "repo:MansiPatil21@86612618/FundEd@1368272004"
+}

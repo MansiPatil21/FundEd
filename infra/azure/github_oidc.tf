@@ -15,9 +15,11 @@ locals {
   github_audience = ["api://AzureADTokenExchange"]
   # A job that declares `environment: azure-dev` presents this subject, not the branch ref, so any
   # identity used from such a job needs a credential for it.
-  github_environment_subject  = "repo:${var.github_repository}:environment:azure-dev"
-  github_main_subject         = "repo:${var.github_repository}:ref:refs/heads/${var.github_branch}"
-  github_pull_request_subject = "repo:${var.github_repository}:pull_request"
+  # Built from the subject prefix GitHub actually issues. The first pipeline run failed with
+  # AADSTS700213 because the repository uses immutable-ID subjects, not repo:OWNER/REPO.
+  github_environment_subject  = "${var.github_subject_prefix}:environment:azure-dev"
+  github_main_subject         = "${var.github_subject_prefix}:ref:refs/heads/${var.github_branch}"
+  github_pull_request_subject = "${var.github_subject_prefix}:pull_request"
   subscription_scope          = "/subscriptions/${var.subscription_id}"
 }
 
