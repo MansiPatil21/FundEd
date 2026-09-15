@@ -6,7 +6,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Retries and a longer timeout: OR-Tools and NumPy are large wheels, and a single slow read from
+# PyPI otherwise fails the whole image build (it did, on the first Azure deploy).
+RUN pip install --no-cache-dir --retries 10 --timeout 120 -r requirements.txt
 
 COPY app ./app
 

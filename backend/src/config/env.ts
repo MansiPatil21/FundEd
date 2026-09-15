@@ -15,6 +15,8 @@ const schema = z.object({
   // 5050 locally because macOS reserves port 5000 for AirPlay Receiver. In compose the
   // service is reached by name on its own network, so this default is not used there.
   OPTIMIZER_URL: z.string().url().default('http://localhost:5050'),
+  // Required only when the optimiser is deployed with a key, as on Azure Container Apps.
+  OPTIMIZER_API_KEY: z.string().min(16).optional(),
   CORS_ORIGIN: z.string().default('http://localhost:3000'),
   // No default. A signing secret that falls back to a known string is worse than
   // one that is missing, because the missing one fails loudly at boot.

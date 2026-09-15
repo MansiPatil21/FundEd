@@ -1,0 +1,117 @@
+name: Terraform (Azure)
+
+# Pull requests get a plan in the job summary. Merges to main plan again and, when something
+# changed, apply from the azure-dev environment with a separate, write-capable identity.
+#
+# The apply job re-plans rather than downloading the plan file from the plan job on purpose: a saved
+# plan contains resource values, including secrets, and artifacts in a public repository can be
+# downloaded by any signed-in GitHub user.
+on:
+  pull_request:
+    paths:
+      - infra/azure/**
+      - .github/workflows/azure-terraform.yml
+  push:
+    branches: [main]
+    paths:
+      - infra/azure/**
+      - .github/workflows/azure-terraform.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+# One Terraform run at a time against the shared state, never cancelled half way.
+concurrency:
+  group: terraform-azure
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  ARM_USE_OIDC: "true"
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_subscription_id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_state_resource_group: ${{ vars.TF_STATE_RESOURCE_GROUP }}
+  TF_VAR_state_storage_account: ${{ vars.TF_STATE_STORAGE_ACCOUNT }}
+
+jobs:
+  plan:
+    name: Plan
+    # Skips cleanly on forks, which cannot obtain a token Azure trusts.
+    if: vars.AZURE_TF_PLAN_CLIENT_ID != ''
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra/azure
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_TF_PLAN_CLIENT_ID }}
+    outputs:
+      has_changes: ${{ steps.plan.outputs.has_changes }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Init
+        run: >
+          terraform init -input=false
+          -backend-config="resource_group_name=${{ vars.TF_STATE_RESOURCE_GROUP }}"
+          -backend-config="storage_account_name=${{ vars.TF_STATE_STORAGE_ACCOUNT }}"
+          -backend-config="container_name=tfstate"
+          -backend-config="key=funded-azure.tfstate"
+          -backend-config="use_azuread_auth=true"
+          -backend-config="use_oidc=true"
+
+      - name: Plan
+        id: plan
+        run: |
+          set +e
+          terraform plan -input=false -lock-timeout=5m -no-color -detailed-exitcode -out=tfplan > plan.txt 2>&1
+          code=$?
+          set -e
+          cat plan.txt
+          # 0 means no changes, 2 means changes, anything else is a failure.
+          if [ "$code" -eq 1 ]; then exit 1; fi
+          echo "has_changes=$([ "$code" -eq 2 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          {
+            echo "## Terraform plan"
+            echo '```'
+            grep -E '^(Plan:|No changes\.)|^  # ' plan.txt | head -60
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          rm -f tfplan
+
+  apply:
+    name: Apply
+    needs: plan
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.plan.outputs.has_changes == 'true'
+    runs-on: ubuntu-latest
+    # Add required reviewers to this environment in the repository settings to make every
+    # infrastructure change wait for a human approval.
+    environment: azure-dev
+    defaults:
+      run:
+        working-directory: infra/azure
+    env:
+      ARM_CLIENT_ID: ${{ vars.AZURE_TF_APPLY_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_wrapper: false
+
+      - name: Init
+        run: >
+          terraform init -input=false
+          -backend-config="resource_group_name=${{ vars.TF_STATE_RESOURCE_GROUP }}"
+          -backend-config="storage_account_name=${{ vars.TF_STATE_STORAGE_ACCOUNT }}"
+          -backend-config="container_name=tfstate"
+          -backend-config="key=funded-azure.tfstate"
+          -backend-config="use_azuread_auth=true"
+          -backend-config="use_oidc=true"
+
+      - name: Apply
+        run: terraform apply -input=false -lock-timeout=5m -auto-approve -no-color

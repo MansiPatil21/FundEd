@@ -1,0 +1,104 @@
+name: Deploy optimizer to Azure
+
+# Deploys the optimizer image to Azure Container Apps. Infrastructure itself is applied with
+# Terraform from infra/azure (see its README); this workflow only validates that configuration.
+on:
+  push:
+    branches: [main]
+    paths:
+      - optimizer/**
+      - infra/azure/**
+      - .github/workflows/azure-deploy.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # lets GitHub issue the short-lived OIDC token Azure trusts. No stored secret.
+
+concurrency:
+  group: azure-deploy
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Test and validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Optimizer and Azure report tests
+        run: |
+          pip install -r optimizer/requirements-dev.txt
+          (cd optimizer && python -m pytest -q)
+          (cd infra/azure/scripts && python -m pytest -q)
+      - uses: hashicorp/setup-terraform@v3
+      - name: Terraform format and validate
+        working-directory: infra/azure
+        run: |
+          terraform fmt -recursive -check
+          terraform init -backend=false -input=false
+          terraform validate
+      - name: PowerShell script analysis
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser
+          $findings = Invoke-ScriptAnalyzer -Path infra/azure -Severity Error
+          $findings | Format-Table -AutoSize
+          if ($findings) { throw "$($findings.Count) PowerShell error(s)" }
+
+  deploy:
+    name: Build, push and roll out
+    needs: validate
+    # Skip cleanly on forks and before the one-time Terraform deployment has set the variables.
+    if: github.ref == 'refs/heads/main' && vars.AZURE_CLIENT_ID != ''
+    runs-on: ubuntu-latest
+    environment: azure-dev
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push image
+        run: |
+          az acr login --name "${{ vars.AZURE_ACR_NAME }}"
+          image="${{ vars.AZURE_ACR_NAME }}.azurecr.io/funded-optimizer:${GITHUB_SHA::12}"
+          docker build --tag "$image" optimizer
+          docker push "$image"
+          echo "IMAGE=$image" >> "$GITHUB_ENV"
+
+      - name: Roll out new revision
+        run: |
+          az containerapp update \
+            --name "${{ vars.AZURE_CONTAINER_APP }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --image "$IMAGE" --output none
+          fqdn=$(az containerapp show --name "${{ vars.AZURE_CONTAINER_APP }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --query properties.configuration.ingress.fqdn --output tsv)
+          echo "URL=https://$fqdn" >> "$GITHUB_ENV"
+
+      - name: Smoke test, including the API key guard
+        run: |
+          for attempt in $(seq 1 30); do
+            curl --fail --silent --max-time 20 "$URL/health" && break
+            sleep 10
+          done
+          curl --fail --silent --max-time 20 "$URL/health"
+          status=$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 30 \
+            -X POST "$URL/plan" -H 'content-type: application/json' -d '{}')
+          echo "POST /plan without a key -> $status"
+          test "$status" = "401"
+
+      - name: Policy compliance and revision health via the Azure REST API
+        run: |
+          python infra/azure/scripts/azure_report.py \
+            --subscription "${{ vars.AZURE_SUBSCRIPTION_ID }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --container-app "${{ vars.AZURE_CONTAINER_APP }}"

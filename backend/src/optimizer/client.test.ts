@@ -227,3 +227,52 @@ describe('optimiser client: comparison and uncertainty', () => {
     }
   })
 })
+
+describe('optimiser client API key', () => {
+  const planBody = {
+    status: 'OPTIMAL',
+    transfers: [],
+    total_sent_minor: 0,
+    total_fees_minor: 0,
+    total_cost_minor: 0,
+    closing_balance_minor: 100_000,
+  }
+
+  it('sends the key as x-api-key when one is configured', async () => {
+    let received: string | undefined
+    await startServer((req, res) => {
+      received = (req as { headers: Record<string, string | undefined> }).headers['x-api-key']
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(planBody))
+    })
+
+    const outcome = await createOptimiserClient(baseUrl, undefined, undefined, 'k'.repeat(40)).plan(input)
+
+    expect(outcome.kind).toBe('planned')
+    expect(received).toBe('k'.repeat(40))
+  })
+
+  it('sends no key header when none is configured', async () => {
+    let headers: Record<string, string | undefined> = {}
+    await startServer((req, res) => {
+      headers = (req as { headers: Record<string, string | undefined> }).headers
+      res.writeHead(200, { 'content-type': 'application/json' })
+      res.end(JSON.stringify(planBody))
+    })
+
+    await createOptimiserClient(baseUrl).plan(input)
+
+    expect(headers['x-api-key']).toBeUndefined()
+  })
+
+  it('reports a rejected key as unavailable rather than throwing', async () => {
+    await startServer((_req, res) => {
+      res.writeHead(401, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ detail: 'invalid or missing API key' }))
+    })
+
+    const outcome = await createOptimiserClient(baseUrl, undefined, undefined, 'wrong-key-wrong-key').plan(input)
+
+    expect(outcome).toEqual({ kind: 'unavailable', reason: 'optimiser returned 401' })
+  })
+})

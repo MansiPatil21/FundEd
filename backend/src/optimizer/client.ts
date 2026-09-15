@@ -90,18 +90,20 @@ type CallResult<T> =
  * @param savingTimeoutMs The uncertainty estimate, which solves once per simulated rate
  *   path. Measured on a 180-day horizon: 40 paths took about 9 s and 120 took about 41 s,
  *   so it gets its own, longer limit rather than sharing the one for a single solve.
+ * @param apiKey Sent as `x-api-key` when the optimiser requires one, as it does on Azure.
  */
 export function createOptimiserClient(
   baseUrl: string,
   timeoutMs = 30_000,
   savingTimeoutMs = 90_000,
+  apiKey?: string,
 ): OptimiserClient {
   async function call<T>(path: string, body: unknown, schema: z.ZodType<T>, limitMs: number): Promise<CallResult<T>> {
     let response: Response
     try {
       response = await fetch(new URL(path, baseUrl), {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...(apiKey ? { 'x-api-key': apiKey } : {}) },
         body: JSON.stringify(body),
         // CPU-bound work can legitimately take seconds, but must not hang a request
         // forever if the service wedges.

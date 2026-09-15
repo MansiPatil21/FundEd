@@ -31,7 +31,7 @@ redis.on('error', () => {
 const tokens = createTokenService(env.JWT_SECRET, env.JWT_TTL_SECONDS)
 const shifts = createShiftRepository(db)
 const obligations = createObligationRepository(db)
-const optimiser = createOptimiserClient(env.OPTIMIZER_URL)
+const optimiser = createOptimiserClient(env.OPTIMIZER_URL, undefined, undefined, env.OPTIMIZER_API_KEY)
 const cache = createRateCache(redis)
 
 async function checkHealth(): Promise<Record<string, 'up' | 'down'>> {

@@ -1,0 +1,13 @@
+# Provider plugins and local state. The lock file (.terraform.lock.hcl) is committed on purpose,
+# so every machine and the pipeline resolve the same provider versions.
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# Written by bootstrap.ps1 for this subscription. Not secret, but specific to one account.
+backend.hcl
+
+__pycache__/
+.pytest_cache/

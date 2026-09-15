@@ -8,14 +8,37 @@ The split is justified by the workload, not by a preference for microservices.
 
 from __future__ import annotations
 
+import hmac
+
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from .baseline import monthly_baseline
 from .inference import estimate_saving
 from .models import PlanRequest, PlanResponse
+from .secrets import KeyUnavailable, api_keys
 from .solver import solve
+
+def require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    """Rejects planning requests without the shared key, when one is configured.
+
+    Unset locally, on Render and in the test suite, where the optimiser is reachable only by
+    the API or is fine to be open. Required on Azure, where the key comes from Key Vault,
+    because a Container Apps URL is public and every solve is CPU the subscription pays for.
+    If the vault is configured but cannot be read, requests are refused with 503: failing
+    open would silently remove the protection. Compared in constant time so response timing
+    does not leak how much of a guess was right.
+    """
+    try:
+        expected = api_keys.get()
+    except KeyUnavailable as error:
+        raise HTTPException(status_code=503, detail="API key temporarily unavailable") from error
+    if not expected:
+        return
+    if x_api_key is None or not hmac.compare_digest(x_api_key.encode(), expected.encode()):
+        raise HTTPException(status_code=401, detail="invalid or missing API key")
+
 
 app = FastAPI(
     title="FundEd optimiser",
@@ -29,7 +52,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.post("/plan", response_model=PlanResponse)
+@app.post("/plan", response_model=PlanResponse, dependencies=[Depends(require_api_key)])
 def plan(request: PlanRequest) -> PlanResponse:
     """The optimal transfer schedule for one set of obligations and rates."""
     try:
@@ -38,7 +61,7 @@ def plan(request: PlanRequest) -> PlanResponse:
         raise HTTPException(status_code=422, detail=str(error)) from error
 
 
-@app.post("/baseline", response_model=PlanResponse)
+@app.post("/baseline", response_model=PlanResponse, dependencies=[Depends(require_api_key)])
 def baseline(request: PlanRequest) -> PlanResponse:
     """What fixed monthly transfers would have cost, for comparison."""
     return monthly_baseline(request)
@@ -63,7 +86,7 @@ class SavingResponse(BaseModel):
     caveat: str
 
 
-@app.post("/saving", response_model=SavingResponse)
+@app.post("/saving", response_model=SavingResponse, dependencies=[Depends(require_api_key)])
 def saving(request: SavingRequest) -> SavingResponse:
     """How much timing is worth, with a confidence interval rather than one number."""
     try:
