@@ -89,6 +89,11 @@ jobs:
     needs: plan
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && needs.plan.outputs.has_changes == 'true'
     runs-on: ubuntu-latest
+    # Shared with the image rollout in azure-deploy.yml. Both modify the container app, and
+    # Azure rejects a change while another provisioning operation is running (409).
+    concurrency:
+      group: azure-dev-container-app
+      cancel-in-progress: false
     # Add required reviewers to this environment in the repository settings to make every
     # infrastructure change wait for a human approval.
     environment: azure-dev

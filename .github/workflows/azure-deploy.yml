@@ -54,6 +54,10 @@ jobs:
     # Skip cleanly on forks and before the one-time Terraform deployment has set the variables.
     if: github.ref == 'refs/heads/main' && vars.AZURE_CLIENT_ID != ''
     runs-on: ubuntu-latest
+    # Shared with the Terraform apply job, so the two never modify the container app at once.
+    concurrency:
+      group: azure-dev-container-app
+      cancel-in-progress: false
     environment: azure-dev
     steps:
       - uses: actions/checkout@v4
