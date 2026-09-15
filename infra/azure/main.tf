@@ -12,6 +12,8 @@ locals {
     project     = "funded"
     environment = var.environment
     managed_by  = "terraform"
+    # Where the configuration lives, so anyone who finds a resource in the portal can trace it back.
+    repository = var.github_repository
   }
 }
 
