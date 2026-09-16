@@ -1,0 +1,6 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+# Saved plans can contain secrets.
+*.tfplan
+backend.hcl

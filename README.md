@@ -53,6 +53,7 @@ cd web && npm ci && npm run dev                               # http://localhost
 - [Test plan](docs/TEST_PLAN.md): strategy, coverage, and the regression test behind each bug found
 - [Deployment](docs/DEPLOYMENT.md): MongoDB Atlas, Render (`render.yaml`) and Vercel, step by step
 - [Analytics pipeline](analytics/README.md): daily ELT with Airflow and dbt into a tested PostgreSQL star schema
+- [Azure data platform](infra/data/README.md): Data Factory pipelines from the ECB API into a Data Lake Gen2 raw zone, an Apache Spark job that curates it, and an Azure SQL serving layer for Power BI
 - [Kubernetes](infra/k8s/README.md): the whole product as Kustomize manifests, verified on a kind cluster in CI on every change and deployable to Azure Kubernetes Service
 - [Jenkins pipeline](optimizer/Jenkinsfile): unit tests, image build and an API-key smoke test for the optimizer, on a local Jenkins configured as code in [infra/jenkins](infra/jenkins/docker-compose.yml)
 - [Requirements](docs/REQUIREMENTS.md) and [architecture decision records](docs/adr)

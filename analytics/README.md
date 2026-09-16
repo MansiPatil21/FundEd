@@ -115,3 +115,12 @@ WAREHOUSE_PORT=5434 WAREHOUSE_TEST_DB=warehouse_test .venv/bin/python -m pytest
   incrementally on an `updatedAt` watermark, which FundEd's models do not yet carry.
 - **PostgreSQL, not Snowflake.** The SQL is standard enough to port, but it has only run on
   PostgreSQL.
+
+## The same data on the Microsoft stack
+
+[`infra/data`](../infra/data/README.md) carries the exchange-rate half of this pipeline on Azure:
+Data Factory lands the ECB rates in a Data Lake Storage Gen2 raw zone, [an Apache Spark
+job](spark/flatten_fx.py) explodes the nested payload into a curated table, Data Factory loads that
+into Azure SQL, and Power BI reads the views. Airflow and dbt stay the pipeline of record here. The
+Azure build does the same work with the tools a Microsoft shop uses, and the Spark job's tests run
+in CI alongside these ones.
